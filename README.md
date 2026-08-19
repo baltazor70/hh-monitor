@@ -61,3 +61,95 @@ ROLE_GROUPS = {
 - .env и база не коммитятся (.gitignore)
 - Дашборд доступен только через SSH-туннель
 - SSH только по ключу, UFW, fail2ban
+
+## Мобильный доступ (HTTPS + пароль + fail2ban)
+
+Для доступа с телефона из любой сети (не через SSH-туннель).
+Все шаги выполняются один раз при развёртывании.
+
+### 1. Самоподписанный SSL-сертификат
+
+    mkdir -p /etc/nginx/ssl
+    openssl req -x509 -nodes -days 730 -newkey rsa:2048 \
+      -keyout /etc/nginx/ssl/hh-monitor.key \
+      -out /etc/nginx/ssl/hh-monitor.crt \
+      -subj "/CN=hh-monitor"
+    chmod 600 /etc/nginx/ssl/hh-monitor.key
+
+### 2. Nginx + пароль на страницу
+
+    apt install -y nginx apache2-utils
+    htpasswd -c /etc/nginx/.htpasswd monitor
+
+Пароль придумайте надёжный, при вводе он не отображается.
+
+### 3. Конфиг nginx
+
+Создать файл /etc/nginx/sites-available/hh-monitor:
+
+    server {
+        listen 443 ssl;
+        server_name _;
+
+        ssl_certificate /etc/nginx/ssl/hh-monitor.crt;
+        ssl_certificate_key /etc/nginx/ssl/hh-monitor.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+
+        auth_basic "HH Monitor";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+
+        location / {
+            proxy_pass http://127.0.0.1:5001;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+
+Активировать:
+
+    ln -sf /etc/nginx/sites-available/hh-monitor /etc/nginx/sites-enabled/
+    rm -f /etc/nginx/sites-enabled/default
+    nginx -t && systemctl restart nginx
+
+### 4. Fail2ban (бан IP после 3 неудачных попыток входа)
+
+Создать файл /etc/fail2ban/jail.d/hh-monitor.conf:
+
+    [nginx-http-auth]
+    enabled = true
+    port = https
+    filter = nginx-http-auth
+    logpath = /var/log/nginx/error.log
+    maxretry = 3
+    findtime = 600
+    bantime = 86400
+
+Применить:
+
+    systemctl restart fail2ban
+
+Бан действует сутки. Разбанить свой IP, если ошиблись паролем:
+
+    fail2ban-client set nginx-http-auth unbanip ВАШ_IP
+
+### 5. Открыть порт в файрволе
+
+    ufw allow 443/tcp
+    ufw status
+
+### Как заходить
+
+С компьютера и с телефона: https://IP_СЕРВЕРА/
+
+Браузер предупредит о самоподписанном сертификате — это нормально,
+шифрование трафика работает. Нажмите «Дополнительно» → «Перейти на сайт».
+Затем введите логин monitor и ваш пароль.
+
+Проверка работы:
+
+    curl -k -s -o /dev/null -w "%{http_code}\n" https://IP_СЕРВЕРА/
+    curl -k -s -o /dev/null -w "%{http_code}\n" -u monitor:ВАШ_ПАРОЛЬ https://IP_СЕРВЕРА/
+
+Первая команда должна вернуть 401 (без пароля не пускает), вторая — 200.
