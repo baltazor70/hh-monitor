@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HH Monitor — аналитика рынка труда</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#16213e; --card:rgba(255,255,255,.06); --border:rgba(255,255,255,.12);
+    --text:#e8ecf7; --muted:#8b93a7; --accent:#5b8cff; --green:#3ddc84; --red:#ff6b6b;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:linear-gradient(160deg,#101a33,#16213e);color:var(--text);
+       font-family:-apple-system,'Segoe UI',Roboto,sans-serif;min-height:100vh;padding:24px}
+  h1{font-size:22px;font-weight:600}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px}
+  .grid{display:grid;gap:16px;margin-top:16px}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+  .charts{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;
+        padding:18px;backdrop-filter:blur(10px)}
+  .card h3{font-size:13px;color:var(--muted);font-weight:500;margin-bottom:10px}
+  .value{font-size:26px;font-weight:700}
+  .badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:20px;margin-top:6px}
+  .up{background:rgba(61,220,132,.15);color:var(--green)}
+  .down{background:rgba(255,107,107,.15);color:var(--red)}
+  .na{background:rgba(255,255,255,.08);color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td,th{padding:8px 6px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--muted);font-weight:500}
+  a{color:var(--accent);text-decoration:none}
+  .salary{color:var(--green);white-space:nowrap}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+<h1>📊 HH Monitor — Head of Support / Team Lead</h1>
+<div class="sub" id="date"></div>
+
+<div class="grid kpis">
+  <div class="card"><h3>Новых сегодня</h3><div class="value" id="kToday">—</div><span class="badge na" id="kTodayPct">…</span></div>
+  <div class="card"><h3>За неделю (с пн)</h3><div class="value" id="kWeek">—</div></div>
+  <div class="card"><h3>Средняя «от» (неделя)</h3><div class="value" id="kFrom">—</div></div>
+  <div class="card"><h3>Средняя «до» (неделя)</h3><div class="value" id="kTo">—</div></div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h3 id="weekTitle">Итоги недели (обновляется в пятницу)</h3>
+    <table>
+      <tr><td>Вакансий за неделю</td><td style="font-size:18px;font-weight:700" id="wTotal">—</td><td id="wTotalPct"></td></tr>
+      <tr><td>Средняя «от»</td><td style="font-size:18px;font-weight:700" id="wFrom">—</td><td id="wFromPct"></td></tr>
+      <tr><td>Средняя «до»</td><td style="font-size:18px;font-weight:700" id="wTo">—</td><td id="wToPct"></td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="grid charts">
+  <div class="card"><h3>Количество вакансий за день</h3><canvas id="chartCount"></canvas></div>
+  <div class="card"><h3>Средняя зарплата по дням, ₽</h3><canvas id="chartSalary"></canvas></div>
+</div>
+
+<div class="grid charts">
+  <div class="card"><h3>Топ компаний за неделю</h3><table id="topTable"></table></div>
+  <div class="card"><h3>Последние вакансии</h3><table id="latestTable"></table></div>
+</div>
+
+<script>
+const fmt = n => n==null ? '—' : Number(n).toLocaleString('ru-RU');
+const fmtMoney = n => n==null ? '—' : Number(n).toLocaleString('ru-RU')+' ₽';
+const sal = v => (v.from==null && v.to==null) ? '—' :
+  `${v.from!=null?fmt(v.from):'…'} – ${v.to!=null?fmt(v.to):'…'}`;
+function badge(el,p){
+  if(p==null){el.className='badge na';el.textContent='нет сравнения';return;}
+  el.className='badge '+(p>=0?'up':'down');
+  el.textContent=(p>=0?'▲ +':'▼ ')+p+'%';
+}
+document.getElementById('date').textContent =
+  new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+
+fetch('/api/stats').then(r=>r.json()).then(d=>{
+  document.getElementById('kToday').textContent = fmt(d.kpi.new_today);
+  badge(document.getElementById('kTodayPct'), d.kpi.day_growth);
+  document.getElementById('kWeek').textContent = fmt(d.kpi.week_total);
+  document.getElementById('kFrom').textContent = fmtMoney(d.kpi.week_avg_from);
+  document.getElementById('kTo').textContent = fmtMoney(d.kpi.week_avg_to);
+
+  if(d.weekly){
+    document.getElementById('weekTitle').textContent =
+      `Итоги недели ${d.weekly.week_start} — ${d.weekly.week_end} (к прошлой неделе)`;
+    document.getElementById('wTotal').textContent = fmt(d.weekly.total);
+    document.getElementById('wFrom').textContent = fmtMoney(d.weekly.avg_from);
+    document.getElementById('wTo').textContent = fmtMoney(d.weekly.avg_to);
+    badge(document.getElementById('wTotalPct'), d.weekly.growth_total);
+    badge(document.getElementById('wFromPct'), d.weekly.growth_from);
+    badge(document.getElementById('wToPct'), d.weekly.growth_to);
+  }
+
+  const grid={color:'rgba(255,255,255,.08)'};
+  const ticks={color:'#8b93a7'};
+  new Chart(document.getElementById('chartCount'),{
+    type:'bar',
+    data:{labels:d.labels,datasets:[{label:'Вакансии',data:d.counts,
+      backgroundColor:'rgba(91,140,255,.7)',borderRadius:6}]},
+    options:{plugins:{legend:{display:false}},
+      scales:{x:{ticks,grid:{display:false}},y:{ticks,grid,beginAtZero:true}}}
+  });
+  new Chart(document.getElementById('chartSalary'),{
+    type:'line',
+    data:{labels:d.labels,datasets:[
+      {label:'«до»',data:d.avg_to,borderColor:'#3ddc84',backgroundColor:'rgba(61,220,132,.15)',tension:.3},
+      {label:'«от»',data:d.avg_from,borderColor:'#5b8cff',backgroundColor:'rgba(91,140,255,.15)',tension:.3}
+    ]},
+    options:{plugins:{legend:{labels:{color:'#8b93a7'}}},
+      scales:{x:{ticks,grid:{display:false}},y:{ticks,grid}}}
+  });
+
+  document.getElementById('topTable').innerHTML =
+    '<tr><th>Компания</th><th>Вакансий</th></tr>' +
+    d.top.map(t=>`<tr><td>${t.name}</td><td>${t.count}</td></tr>`).join('');
+
+  document.getElementById('latestTable').innerHTML =
+    '<tr><th>Вакансия</th><th>Зарплата</th><th>Дата</th></tr>' +
+    d.latest.map(v=>`<tr>
+      <td><a href="${v.url}" target="_blank">${v.name}</a><div class="muted">${v.employer||''}</div></td>
+      <td class="salary">${sal(v)}</td>
+      <td class="muted">${v.date}</td></tr>`).join('');
+});
+</script>
+</body>
+</html>

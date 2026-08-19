@@ -1,0 +1,8 @@
+venv/
+.env
+*.db
+*.db-journal
+__pycache__/
+*.pyc
+nohup.out
+.token
