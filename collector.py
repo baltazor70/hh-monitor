@@ -36,13 +36,16 @@ ROLE_GROUPS = {
     ]
 }
 
+# Разрешенные professional_role (121=Специалист техподдержки, 104=Руководитель группы разработки)
+# Пустая role тоже пропускаем (на случай, если компания не указала)
+ALLOWED_ROLES = {'121','113','105','104','189','114','112','116','36','125','40'}
+
 SCOPES = {
     "moscow": {"area": "1"},
     "remote": {"schedule": "remote"}
 }
 
 def get_access_token():
-    """Получает access_token с retry"""
     for attempt in range(3):
         try:
             response = httpx.post(
@@ -74,7 +77,6 @@ def get_access_token():
     return None
 
 def fetch_vacancies(token: str, text: str, scope: dict, page: int = 0):
-    """Делает запрос к HH API с retry"""
     params = {
         "text": text,
         "per_page": 100,
@@ -118,7 +120,23 @@ def to_msk_date(iso_dt: str) -> str:
     except:
         return datetime.now(MSK).date().isoformat()
 
+def is_relevant_role(vacancy: dict) -> bool:
+    """Проверяем, что professional_role разрешен или отсутствует"""
+    pro_role = vacancy.get('professional_roles', [])
+    if not pro_role:
+        return True  # role не указана — пропускаем
+    
+    for r in pro_role:
+        if r.get('id') in ALLOWED_ROLES:
+            return True
+    
+    return False
+
 def save_vacancy(vacancy: dict, role_group: str, scope_name: str, query_phrase: str):
+    # Фильтр по professional_role
+    if not is_relevant_role(vacancy):
+        return 0
+    
     conn = get_db()
     
     vacancy_id = vacancy['id']
@@ -131,6 +149,9 @@ def save_vacancy(vacancy: dict, role_group: str, scope_name: str, query_phrase: 
     ).fetchone()
     
     salary = vacancy.get('salary') or {}
+    experience = vacancy.get('experience') or {}
+    pro_roles = vacancy.get('professional_roles', [])
+    pro_role_id = pro_roles[0].get('id') if pro_roles else None
     
     if not existing:
         conn.execute("""
@@ -138,8 +159,9 @@ def save_vacancy(vacancy: dict, role_group: str, scope_name: str, query_phrase: 
                 id, name, employer_id, employer_name, area_name,
                 salary_from, salary_to, salary_currency, salary_gross,
                 url, alternate_url, apply_alternate_url,
-                published_at, published_date, first_seen_at, last_seen_at, raw_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                published_at, published_date, first_seen_at, last_seen_at,
+                experience_id, experience_name, professional_role_id, raw_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             vacancy_id,
             vacancy.get('name'),
@@ -157,14 +179,23 @@ def save_vacancy(vacancy: dict, role_group: str, scope_name: str, query_phrase: 
             published_date,
             datetime.now(MSK).isoformat(),
             datetime.now(MSK).isoformat(),
+            experience.get('id'),
+            experience.get('name'),
+            pro_role_id,
             json.dumps(vacancy, ensure_ascii=False)
         ))
         print(f"[{datetime.now(MSK)}] Added: {vacancy.get('name')}")
     else:
-        conn.execute(
-            "UPDATE vacancies SET last_seen_at = ? WHERE id = ?",
-            (datetime.now(MSK).isoformat(), vacancy_id)
-        )
+        conn.execute("""
+            UPDATE vacancies SET last_seen_at = ?, experience_id = ?, experience_name = ?, professional_role_id = ?
+            WHERE id = ?
+        """, (
+            datetime.now(MSK).isoformat(),
+            experience.get('id'),
+            experience.get('name'),
+            pro_role_id,
+            vacancy_id
+        ))
     
     conn.execute("""
         INSERT OR IGNORE INTO vacancy_matches (
@@ -180,6 +211,7 @@ def save_vacancy(vacancy: dict, role_group: str, scope_name: str, query_phrase: 
     
     conn.commit()
     conn.close()
+    return 1
 
 def collect_vacancies():
     print(f"[{datetime.now(MSK)}] Starting vacancy collection...")
@@ -190,6 +222,7 @@ def collect_vacancies():
         return
     
     total_added = 0
+    total_skipped = 0
     
     for role_group, phrases in ROLE_GROUPS.items():
         print(f"\n[{datetime.now(MSK)}] Processing: {role_group}")
@@ -211,8 +244,10 @@ def collect_vacancies():
                         break
                     
                     for vacancy in items:
-                        save_vacancy(vacancy, role_group, scope_name, phrase)
-                        total_added += 1
+                        if save_vacancy(vacancy, role_group, scope_name, phrase):
+                            total_added += 1
+                        else:
+                            total_skipped += 1
                     
                     if page >= data.get('pages', 1) - 1:
                         break
@@ -220,7 +255,7 @@ def collect_vacancies():
                     page += 1
                     time.sleep(3)
     
-    print(f"\n[{datetime.now(MSK)}] Collection completed. Total: {total_added}")
+    print(f"\n[{datetime.now(MSK)}] Collection completed. Added: {total_added}, Skipped (wrong role): {total_skipped}")
 
 if __name__ == '__main__':
     collect_vacancies()

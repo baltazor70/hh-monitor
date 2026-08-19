@@ -32,6 +32,11 @@
   a{color:var(--accent);text-decoration:none}
   .salary{color:var(--green);white-space:nowrap}
   .muted{color:var(--muted)}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .chip{background:rgba(255,255,255,.08);border:1px solid var(--border);color:var(--text);
+        padding:6px 12px;border-radius:20px;cursor:pointer;font-size:12px}
+  .chip.active{background:rgba(91,140,255,.25);border-color:var(--accent)}
+.chartbox{height:280px;position:relative}
 </style>
 </head>
 <body>
@@ -41,8 +46,8 @@
 <div class="grid kpis">
   <div class="card"><h3>Новых сегодня</h3><div class="value" id="kToday">—</div><span class="badge na" id="kTodayPct">…</span></div>
   <div class="card"><h3>За неделю (с пн)</h3><div class="value" id="kWeek">—</div></div>
-  <div class="card"><h3>Средняя «от» (неделя)</h3><div class="value" id="kFrom">—</div></div>
-  <div class="card"><h3>Средняя «до» (неделя)</h3><div class="value" id="kTo">—</div></div>
+  <div class="card"><h3>Медиана «от» (неделя)</h3><div class="value" id="kFrom">—</div></div>
+  <div class="card"><h3>Медиана «до» (неделя)</h3><div class="value" id="kTo">—</div></div>
 </div>
 
 <div class="grid">
@@ -50,23 +55,40 @@
     <h3 id="weekTitle">Итоги недели (обновляется в пятницу)</h3>
     <table>
       <tr><td>Вакансий за неделю</td><td style="font-size:18px;font-weight:700" id="wTotal">—</td><td id="wTotalPct"></td></tr>
-      <tr><td>Средняя «от»</td><td style="font-size:18px;font-weight:700" id="wFrom">—</td><td id="wFromPct"></td></tr>
-      <tr><td>Средняя «до»</td><td style="font-size:18px;font-weight:700" id="wTo">—</td><td id="wToPct"></td></tr>
+      <tr><td>Медиана «от»</td><td style="font-size:18px;font-weight:700" id="wFrom">—</td><td id="wFromPct"></td></tr>
+      <tr><td>Медиана «до»</td><td style="font-size:18px;font-weight:700" id="wTo">—</td><td id="wToPct"></td></tr>
     </table>
   </div>
 </div>
 
 <div class="grid charts">
-  <div class="card"><h3>Количество вакансий за день</h3><canvas id="chartCount"></canvas></div>
-  <div class="card"><h3>Средняя зарплата по дням, ₽</h3><canvas id="chartSalary"></canvas></div>
+  <div class="card"><h3>Количество вакансий за день</h3><div class="chartbox"><canvas id="chartCount"></canvas></div></div>
+  <div class="card"><h3>Медианная зарплата по дням, ₽</h3><div class="chartbox"><canvas id="chartSalary"></canvas></div></div>
 </div>
 
 <div class="grid charts">
   <div class="card"><h3>Топ компаний за неделю</h3><table id="topTable"></table></div>
-  <div class="card"><h3>Последние вакансии</h3><table id="latestTable"></table></div>
+  <div class="card"><h3>🔥 Топ-10 зарплат недели</h3><table id="topSalariesTable"></table></div>
+</div>
+
+<div class="grid charts">
+  <div class="card"><h3>Расклад по опыту (неделя)</h3><div class="chartbox"><canvas id="chartExperience"></canvas></div></div>
+  <div class="card">
+    <h3>Вакансии (фильтр по зарплате)</h3>
+    <div class="chips">
+      <button class="chip active" data-min="0" data-paid="0">Все</button>
+      <button class="chip" data-min="0" data-paid="1">Только с зарплатой</button>
+      <button class="chip" data-min="100000" data-paid="0">100k+</button>
+      <button class="chip" data-min="150000" data-paid="0">150k+</button>
+      <button class="chip" data-min="200000" data-paid="0">200k+</button>
+    </div>
+    <div class="sub" id="vacCount"></div>
+    <table id="latestTable"></table>
+  </div>
 </div>
 
 <script>
+Chart.defaults.maintainAspectRatio = false;
 const fmt = n => n==null ? '—' : Number(n).toLocaleString('ru-RU');
 const fmtMoney = n => n==null ? '—' : Number(n).toLocaleString('ru-RU')+' ₽';
 const sal = v => (v.from==null && v.to==null) ? '—' :
@@ -79,6 +101,39 @@ function badge(el,p){
 document.getElementById('date').textContent =
   new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
 
+let VACS = [], mode = {min:0, paid:false};
+
+function renderVacs(){
+  const list = VACS.filter(v=>{
+    const has = v.from!=null || v.to!=null;
+    if(mode.paid && !has) return false;
+    if(mode.min>0){
+      if(!has) return false;
+      const top = v.to!=null ? v.to : v.from;
+      const low = v.from!=null ? v.from : v.to;
+      if(!(top>=mode.min || low>=mode.min)) return false;
+    }
+    return true;
+  });
+  document.getElementById('vacCount').textContent =
+    `Показано ${list.length} из ${VACS.length}`;
+  document.getElementById('latestTable').innerHTML =
+    '<tr><th>Вакансия</th><th>Зарплата</th><th>Дата</th></tr>' +
+    list.slice(0,50).map(v=>`<tr>
+      <td><a href="${v.url}" target="_blank">${v.name}</a><div class="muted">${v.employer||''}</div></td>
+      <td class="salary">${sal(v)}</td>
+      <td class="muted">${v.date}</td></tr>`).join('');
+}
+
+document.querySelectorAll('.chip').forEach(ch=>{
+  ch.addEventListener('click',()=>{
+    document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+    ch.classList.add('active');
+    mode = {min: parseInt(ch.dataset.min||'0'), paid: ch.dataset.paid==='1'};
+    renderVacs();
+  });
+});
+
 fetch('/api/stats').then(r=>r.json()).then(d=>{
   document.getElementById('kToday').textContent = fmt(d.kpi.new_today);
   badge(document.getElementById('kTodayPct'), d.kpi.day_growth);
@@ -90,8 +145,8 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
     document.getElementById('weekTitle').textContent =
       `Итоги недели ${d.weekly.week_start} — ${d.weekly.week_end} (к прошлой неделе)`;
     document.getElementById('wTotal').textContent = fmt(d.weekly.total);
-    document.getElementById('wFrom').textContent = fmtMoney(d.weekly.avg_from);
-    document.getElementById('wTo').textContent = fmtMoney(d.weekly.avg_to);
+    document.getElementById('wFrom').textContent = fmtMoney(d.weekly.med_from);
+    document.getElementById('wTo').textContent = fmtMoney(d.weekly.med_to);
     badge(document.getElementById('wTotalPct'), d.weekly.growth_total);
     badge(document.getElementById('wFromPct'), d.weekly.growth_from);
     badge(document.getElementById('wToPct'), d.weekly.growth_to);
@@ -109,23 +164,34 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
   new Chart(document.getElementById('chartSalary'),{
     type:'line',
     data:{labels:d.labels,datasets:[
-      {label:'«до»',data:d.avg_to,borderColor:'#3ddc84',backgroundColor:'rgba(61,220,132,.15)',tension:.3},
-      {label:'«от»',data:d.avg_from,borderColor:'#5b8cff',backgroundColor:'rgba(91,140,255,.15)',tension:.3}
+      {label:'«до»',data:d.avg_to,borderColor:'#3ddc84',backgroundColor:'rgba(61,220,132,.15)',tension:.3,spanGaps:true},
+      {label:'«от»',data:d.avg_from,borderColor:'#5b8cff',backgroundColor:'rgba(91,140,255,.15)',tension:.3,spanGaps:true}
     ]},
     options:{plugins:{legend:{labels:{color:'#8b93a7'}}},
       scales:{x:{ticks,grid:{display:false}},y:{ticks,grid}}}
+  });
+
+  new Chart(document.getElementById('chartExperience'),{
+    type:'doughnut',
+    data:{labels:d.experience.map(e=>e.name),
+      datasets:[{data:d.experience.map(e=>e.count),
+        backgroundColor:['#5b8cff','#3ddc84','#ff6b6b','#ffd93d','#6c5ce7']}]},
+    options:{plugins:{legend:{position:'bottom',labels:{color:'#8b93a7'}}}}
   });
 
   document.getElementById('topTable').innerHTML =
     '<tr><th>Компания</th><th>Вакансий</th></tr>' +
     d.top.map(t=>`<tr><td>${t.name}</td><td>${t.count}</td></tr>`).join('');
 
-  document.getElementById('latestTable').innerHTML =
+  document.getElementById('topSalariesTable').innerHTML =
     '<tr><th>Вакансия</th><th>Зарплата</th><th>Дата</th></tr>' +
-    d.latest.map(v=>`<tr>
+    d.top_salaries.map(v=>`<tr>
       <td><a href="${v.url}" target="_blank">${v.name}</a><div class="muted">${v.employer||''}</div></td>
       <td class="salary">${sal(v)}</td>
       <td class="muted">${v.date}</td></tr>`).join('');
+
+  VACS = d.latest;
+  renderVacs();
 });
 </script>
 </body>

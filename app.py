@@ -1,55 +1,30 @@
-import os
 import sqlite3
-from functools import wraps
 from datetime import datetime, timedelta
-
 import pytz
-from flask import Flask, render_template, jsonify, request, Response
-from dotenv import load_dotenv
-
-load_dotenv('/opt/hh-monitor/.env')
+from flask import Flask, render_template, jsonify
 
 DB_PATH = '/opt/hh-monitor/hh_monitor.db'
 MSK = pytz.timezone('Europe/Moscow')
-
 app = Flask(__name__)
 
-DASH_USER = os.getenv('DASH_USER', 'anton')
-DASH_PASSWORD = os.getenv('DASH_PASSWORD', 'changeme')
-
-
-def auth_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        auth = request.authorization
-        if not auth or not (auth.username == DASH_USER and auth.password == DASH_PASSWORD):
-            return Response('Требуется пароль', 401,
-                            {'WWW-Authenticate': 'Basic realm="HH Monitor"'})
-        return f(*args, **kwargs)
-    return decorated
-
-
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; return conn
 
+def median(vals):
+    vals = sorted(v for v in vals if v is not None)
+    if not vals: return None
+    n = len(vals); mid = n // 2
+    return vals[mid] if n % 2 else round((vals[mid-1] + vals[mid]) / 2)
 
 def pct(cur, prev):
-    """Процент прироста, защищен от деления на ноль"""
-    if cur is None or prev is None or prev == 0:
-        return None
+    if cur is None or prev is None or prev == 0: return None
     return round((cur - prev) / prev * 100, 1)
 
-
 @app.route('/')
-@auth_required
 def index():
     return render_template('dashboard.html')
 
-
 @app.route('/api/stats')
-@auth_required
 def stats():
     conn = get_db()
     now = datetime.now(MSK)
@@ -58,49 +33,64 @@ def stats():
     cutoff = (now - timedelta(days=7)).date().isoformat()
     monday = (now - timedelta(days=now.weekday())).date().isoformat()
 
-    # Динамика по дням (7 дней): количество + средние зарплаты
-    rows = conn.execute("""
-        SELECT published_date as d,
-               COUNT(*) as total,
-               ROUND(AVG(CASE WHEN salary_currency IN ('RUB','RUR') THEN salary_from END)) as avg_from,
-               ROUND(AVG(CASE WHEN salary_currency IN ('RUB','RUR') THEN salary_to END)) as avg_to
+    counts_rows = conn.execute("""
+        SELECT published_date as d, COUNT(*) as total
         FROM vacancies WHERE published_date >= ?
-        GROUP BY published_date ORDER BY published_date
+        GROUP BY published_date
     """, (cutoff,)).fetchall()
+    counts_by = {r['d']: r['total'] for r in counts_rows}
 
-    new_today = conn.execute(
-        "SELECT COUNT(*) as c FROM vacancies WHERE published_date = ?", (today,)
-    ).fetchone()['c']
-    cnt_yesterday = conn.execute(
-        "SELECT COUNT(*) as c FROM vacancies WHERE published_date = ?", (yesterday,)
-    ).fetchone()['c']
+    sal_rows = conn.execute("""
+        SELECT published_date as d, salary_from, salary_to FROM vacancies
+        WHERE published_date >= ? AND salary_currency IN ('RUB','RUR')
+    """, (cutoff,)).fetchall()
+    by_day = {}
+    for r in sal_rows:
+        by_day.setdefault(r['d'], {'f': [], 't': []})
+        if r['salary_from'] is not None: by_day[r['d']]['f'].append(r['salary_from'])
+        if r['salary_to'] is not None: by_day[r['d']]['t'].append(r['salary_to'])
 
-    # Текущая неделя (с понедельника)
-    week = conn.execute("""
-        SELECT COUNT(*) as total,
-               ROUND(AVG(CASE WHEN salary_currency IN ('RUB','RUR') THEN salary_from END)) as avg_from,
-               ROUND(AVG(CASE WHEN salary_currency IN ('RUB','RUR') THEN salary_to END)) as avg_to
-        FROM vacancies WHERE published_date >= ?
-    """, (monday,)).fetchone()
+    labels, counts, med_from_l, med_to_l = [], [], [], []
+    for i in range(7):
+        d = (now - timedelta(days=6 - i)).date().isoformat()
+        labels.append(d)
+        counts.append(counts_by.get(d, 0))
+        med_from_l.append(median(by_day.get(d, {})['f']) if d in by_day else None)
+        med_to_l.append(median(by_day.get(d, {})['t']) if d in by_day else None)
 
-    # Недельный блок (обновляется в пятницу): последние 2 отчета
-    reports = conn.execute(
-        "SELECT * FROM weekly_reports ORDER BY week_start DESC LIMIT 2"
-    ).fetchall()
+    new_today = conn.execute("SELECT COUNT(*) as c FROM vacancies WHERE published_date=?", (today,)).fetchone()['c']
+    cnt_yest = conn.execute("SELECT COUNT(*) as c FROM vacancies WHERE published_date=?", (yesterday,)).fetchone()['c']
 
+    week_sal = conn.execute("""
+        SELECT salary_from, salary_to FROM vacancies
+        WHERE published_date >= ? AND salary_currency IN ('RUB','RUR')
+    """, (monday,)).fetchall()
+    week_total = conn.execute("SELECT COUNT(*) as c FROM vacancies WHERE published_date>=?", (monday,)).fetchone()['c']
+    week_med_from = median([r['salary_from'] for r in week_sal])
+    week_med_to = median([r['salary_to'] for r in week_sal])
+
+    top_salaries = conn.execute("""
+        SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date
+        FROM vacancies WHERE published_date >= ? AND salary_to IS NOT NULL AND salary_currency IN ('RUB','RUR')
+        ORDER BY salary_to DESC LIMIT 10
+    """, (monday,)).fetchall()
+
+    experience_dist = conn.execute("""
+        SELECT experience_name, COUNT(*) as c FROM vacancies
+        WHERE published_date >= ? AND experience_name IS NOT NULL
+        GROUP BY experience_name ORDER BY c DESC
+    """, (monday,)).fetchall()
+
+    reports = conn.execute("SELECT * FROM weekly_reports ORDER BY week_start DESC LIMIT 2").fetchall()
     weekly = None
     if reports:
-        cur_r = reports[0]
-        prev_r = reports[1] if len(reports) > 1 else None
+        c, p = reports[0], (reports[1] if len(reports) > 1 else None)
         weekly = {
-            'week_start': cur_r['week_start'],
-            'week_end': cur_r['week_end'],
-            'total': cur_r['total_vacancies'],
-            'avg_from': cur_r['avg_salary_from'],
-            'avg_to': cur_r['avg_salary_to'],
-            'growth_total': pct(cur_r['total_vacancies'], prev_r['total_vacancies']) if prev_r else None,
-            'growth_from': pct(cur_r['avg_salary_from'], prev_r['avg_salary_from']) if prev_r else None,
-            'growth_to': pct(cur_r['avg_salary_to'], prev_r['avg_salary_to']) if prev_r else None,
+            'week_start': c['week_start'], 'week_end': c['week_end'], 'total': c['total_vacancies'],
+            'med_from': c['med_salary_from'], 'med_to': c['med_salary_to'],
+            'growth_total': pct(c['total_vacancies'], p['total_vacancies']) if p else None,
+            'growth_from': pct(c['med_salary_from'], p['med_salary_from']) if p else None,
+            'growth_to': pct(c['med_salary_to'], p['med_salary_to']) if p else None,
         }
 
     top = conn.execute("""
@@ -111,32 +101,22 @@ def stats():
 
     latest = conn.execute("""
         SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date
-        FROM vacancies ORDER BY published_date DESC, first_seen_at DESC LIMIT 10
+        FROM vacancies ORDER BY published_date DESC, first_seen_at DESC LIMIT 200
     """).fetchall()
-
     conn.close()
 
     return jsonify({
-        'labels': [r['d'] for r in rows],
-        'counts': [r['total'] for r in rows],
-        'avg_from': [r['avg_from'] for r in rows],
-        'avg_to': [r['avg_to'] for r in rows],
-        'kpi': {
-            'new_today': new_today,
-            'day_growth': pct(new_today, cnt_yesterday),
-            'week_total': week['total'],
-            'week_avg_from': week['avg_from'],
-            'week_avg_to': week['avg_to'],
-        },
+        'labels': labels, 'counts': counts, 'avg_from': med_from_l, 'avg_to': med_to_l,
+        'kpi': {'new_today': new_today, 'day_growth': pct(new_today, cnt_yest),
+                'week_total': week_total, 'week_avg_from': week_med_from, 'week_avg_to': week_med_to},
         'weekly': weekly,
         'top': [{'name': r['employer_name'], 'count': r['c']} for r in top],
-        'latest': [{
-            'name': r['name'], 'employer': r['employer_name'],
-            'from': r['salary_from'], 'to': r['salary_to'],
-            'url': r['alternate_url'], 'date': r['published_date']
-        } for r in latest],
+        'top_salaries': [{'name': r['name'], 'employer': r['employer_name'], 'from': r['salary_from'],
+                          'to': r['salary_to'], 'url': r['alternate_url'], 'date': r['published_date']} for r in top_salaries],
+        'experience': [{'name': r['experience_name'], 'count': r['c']} for r in experience_dist],
+        'latest': [{'name': r['name'], 'employer': r['employer_name'], 'from': r['salary_from'],
+                    'to': r['salary_to'], 'url': r['alternate_url'], 'date': r['published_date']} for r in latest],
     })
-
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5001, debug=False)
