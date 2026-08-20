@@ -81,17 +81,20 @@ def stats():
         GROUP BY experience_name ORDER BY c DESC
     """, (monday,)).fetchall()
 
-    reports = conn.execute("SELECT * FROM weekly_reports ORDER BY week_start DESC LIMIT 2").fetchall()
-    weekly = None
-    if reports:
-        c, p = reports[0], (reports[1] if len(reports) > 1 else None)
-        weekly = {
-            'week_start': c['week_start'], 'week_end': c['week_end'], 'total': c['total_vacancies'],
-            'med_from': c['med_salary_from'], 'med_to': c['med_salary_to'],
-            'growth_total': pct(c['total_vacancies'], p['total_vacancies']) if p else None,
-            'growth_from': pct(c['med_salary_from'], p['med_salary_from']) if p else None,
-            'growth_to': pct(c['med_salary_to'], p['med_salary_to']) if p else None,
-        }
+    prev = conn.execute(
+        "SELECT * FROM weekly_reports WHERE week_start = ?",
+        ((now - timedelta(days=now.weekday() + 7)).date().isoformat(),)
+    ).fetchone()
+    weekly = {
+        'week_start': monday,
+        'week_end': (now - timedelta(days=now.weekday()) + timedelta(days=4)).date().isoformat(),
+        'total': week_total,
+        'med_from': week_med_from,
+        'med_to': week_med_to,
+        'growth_total': pct(week_total, prev['total_vacancies']) if prev else None,
+        'growth_from': pct(week_med_from, prev['med_salary_from']) if prev else None,
+        'growth_to': pct(week_med_to, prev['med_salary_to']) if prev else None,
+    }
 
     top = conn.execute("""
         SELECT employer_name, COUNT(*) as c FROM vacancies
@@ -99,10 +102,17 @@ def stats():
         GROUP BY employer_name ORDER BY c DESC LIMIT 5
     """, (monday,)).fetchall()
 
-    latest = conn.execute("""
+    today_list = conn.execute("""
+        SELECT name, employer_name, salary_from, salary_to, alternate_url
+        FROM vacancies WHERE published_date = ? ORDER BY first_seen_at DESC
+    """, (today,)).fetchall()
+
+    week_list = conn.execute("""
         SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date
-        FROM vacancies ORDER BY published_date DESC, first_seen_at DESC LIMIT 200
-    """).fetchall()
+        FROM vacancies WHERE published_date >= ?
+        ORDER BY published_date DESC, first_seen_at DESC LIMIT 200
+    """, (monday,)).fetchall()
+
     conn.close()
 
     return jsonify({
@@ -114,8 +124,10 @@ def stats():
         'top_salaries': [{'name': r['name'], 'employer': r['employer_name'], 'from': r['salary_from'],
                           'to': r['salary_to'], 'url': r['alternate_url'], 'date': r['published_date']} for r in top_salaries],
         'experience': [{'name': r['experience_name'], 'count': r['c']} for r in experience_dist],
-        'latest': [{'name': r['name'], 'employer': r['employer_name'], 'from': r['salary_from'],
-                    'to': r['salary_to'], 'url': r['alternate_url'], 'date': r['published_date']} for r in latest],
+        'today_list': [{'name': r['name'], 'employer': r['employer_name'], 'from': r['salary_from'],
+                        'to': r['salary_to'], 'url': r['alternate_url']} for r in today_list],
+        'week_list': [{'name': r['name'], 'employer': r['employer_name'], 'from': r['salary_from'],
+                       'to': r['salary_to'], 'url': r['alternate_url'], 'date': r['published_date']} for r in week_list],
     })
 
 if __name__ == '__main__':

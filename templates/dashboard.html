@@ -32,11 +32,16 @@
   a{color:var(--accent);text-decoration:none}
   .salary{color:var(--green);white-space:nowrap}
   .muted{color:var(--muted)}
+  .chartbox{height:280px;position:relative}
+  details.card summary{cursor:pointer;font-size:14px;font-weight:600;list-style:none}
+  details.card summary::-webkit-details-marker{display:none}
+  details.card summary:after{content:'  ▸';color:var(--muted)}
+  details[open].card summary:after{content:'  ▾'}
+  details.card .inner{margin-top:12px}
   .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
   .chip{background:rgba(255,255,255,.08);border:1px solid var(--border);color:var(--text);
         padding:6px 12px;border-radius:20px;cursor:pointer;font-size:12px}
   .chip.active{background:rgba(91,140,255,.25);border-color:var(--accent)}
-.chartbox{height:280px;position:relative}
 </style>
 </head>
 <body>
@@ -67,24 +72,42 @@
 </div>
 
 <div class="grid charts">
-  <div class="card"><h3>Топ компаний за неделю</h3><table id="topTable"></table></div>
-  <div class="card"><h3>🔥 Топ-10 зарплат недели</h3><table id="topSalariesTable"></table></div>
+  <details class="card">
+    <summary>🆕 Новые сегодня (<span id="cntToday">0</span>)</summary>
+    <div class="inner"><table id="todayTable"></table></div>
+  </details>
+  <details class="card">
+    <summary>📅 Новые за неделю (<span id="cntWeek">0</span>)</summary>
+    <div class="inner">
+      <div class="chips">
+        <button class="chip active" data-min="0" data-paid="0">Все</button>
+        <button class="chip" data-min="0" data-paid="1">Только с зарплатой</button>
+        <button class="chip" data-min="100000" data-paid="0">100k+</button>
+        <button class="chip" data-min="150000" data-paid="0">150k+</button>
+        <button class="chip" data-min="200000" data-paid="0">200k+</button>
+      </div>
+      <div class="sub" id="vacCount"></div>
+      <table id="weekTable"></table>
+    </div>
+  </details>
 </div>
 
 <div class="grid charts">
-  <div class="card"><h3>Расклад по опыту (неделя)</h3><div class="chartbox"><canvas id="chartExperience"></canvas></div></div>
-  <div class="card">
-    <h3>Вакансии (фильтр по зарплате)</h3>
-    <div class="chips">
-      <button class="chip active" data-min="0" data-paid="0">Все</button>
-      <button class="chip" data-min="0" data-paid="1">Только с зарплатой</button>
-      <button class="chip" data-min="100000" data-paid="0">100k+</button>
-      <button class="chip" data-min="150000" data-paid="0">150k+</button>
-      <button class="chip" data-min="200000" data-paid="0">200k+</button>
-    </div>
-    <div class="sub" id="vacCount"></div>
-    <table id="latestTable"></table>
-  </div>
+  <details class="card">
+    <summary>🎯 Расклад по опыту (неделя)</summary>
+    <div class="inner"><div class="chartbox"><canvas id="chartExperience"></canvas></div></div>
+  </details>
+  <details class="card">
+    <summary>🏢 Топ компаний за неделю</summary>
+    <div class="inner"><table id="topTable"></table></div>
+  </details>
+</div>
+
+<div class="grid">
+  <details class="card">
+    <summary>🔥 Топ-10 зарплат недели</summary>
+    <div class="inner"><table id="topSalariesTable"></table></div>
+  </details>
 </div>
 
 <script>
@@ -98,13 +121,20 @@ function badge(el,p){
   el.className='badge '+(p>=0?'up':'down');
   el.textContent=(p>=0?'▲ +':'▼ ')+p+'%';
 }
+function vacRows(list, withDate){
+  return '<tr><th>Вакансия</th><th>Зарплата</th>'+(withDate?'<th>Дата</th>':'')+'</tr>' +
+    list.map(v=>`<tr>
+      <td><a href="${v.url}" target="_blank">${v.name}</a><div class="muted">${v.employer||''}</div></td>
+      <td class="salary">${sal(v)}</td>
+      ${withDate?`<td class="muted">${v.date}</td>`:''}</tr>`).join('');
+}
 document.getElementById('date').textContent =
   new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
 
-let VACS = [], mode = {min:0, paid:false};
+let WEEKS = [], mode = {min:0, paid:false};
 
-function renderVacs(){
-  const list = VACS.filter(v=>{
+function renderWeek(){
+  const list = WEEKS.filter(v=>{
     const has = v.from!=null || v.to!=null;
     if(mode.paid && !has) return false;
     if(mode.min>0){
@@ -115,14 +145,8 @@ function renderVacs(){
     }
     return true;
   });
-  document.getElementById('vacCount').textContent =
-    `Показано ${list.length} из ${VACS.length}`;
-  document.getElementById('latestTable').innerHTML =
-    '<tr><th>Вакансия</th><th>Зарплата</th><th>Дата</th></tr>' +
-    list.slice(0,50).map(v=>`<tr>
-      <td><a href="${v.url}" target="_blank">${v.name}</a><div class="muted">${v.employer||''}</div></td>
-      <td class="salary">${sal(v)}</td>
-      <td class="muted">${v.date}</td></tr>`).join('');
+  document.getElementById('vacCount').textContent = `Показано ${list.length} из ${WEEKS.length}`;
+  document.getElementById('weekTable').innerHTML = vacRows(list, true);
 }
 
 document.querySelectorAll('.chip').forEach(ch=>{
@@ -130,7 +154,7 @@ document.querySelectorAll('.chip').forEach(ch=>{
     document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
     ch.classList.add('active');
     mode = {min: parseInt(ch.dataset.min||'0'), paid: ch.dataset.paid==='1'};
-    renderVacs();
+    renderWeek();
   });
 });
 
@@ -170,7 +194,6 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
     options:{plugins:{legend:{labels:{color:'#8b93a7'}}},
       scales:{x:{ticks,grid:{display:false}},y:{ticks,grid}}}
   });
-
   new Chart(document.getElementById('chartExperience'),{
     type:'doughnut',
     data:{labels:d.experience.map(e=>e.name),
@@ -179,19 +202,18 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
     options:{plugins:{legend:{position:'bottom',labels:{color:'#8b93a7'}}}}
   });
 
+  document.getElementById('cntToday').textContent = d.today_list.length;
+  document.getElementById('todayTable').innerHTML = vacRows(d.today_list, false);
+
+  document.getElementById('cntWeek').textContent = d.week_list.length;
+  WEEKS = d.week_list;
+  renderWeek();
+
   document.getElementById('topTable').innerHTML =
     '<tr><th>Компания</th><th>Вакансий</th></tr>' +
     d.top.map(t=>`<tr><td>${t.name}</td><td>${t.count}</td></tr>`).join('');
 
-  document.getElementById('topSalariesTable').innerHTML =
-    '<tr><th>Вакансия</th><th>Зарплата</th><th>Дата</th></tr>' +
-    d.top_salaries.map(v=>`<tr>
-      <td><a href="${v.url}" target="_blank">${v.name}</a><div class="muted">${v.employer||''}</div></td>
-      <td class="salary">${sal(v)}</td>
-      <td class="muted">${v.date}</td></tr>`).join('');
-
-  VACS = d.latest;
-  renderVacs();
+  document.getElementById('topSalariesTable').innerHTML = vacRows(d.top_salaries, true);
 });
 </script>
 </body>
