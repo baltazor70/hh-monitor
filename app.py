@@ -58,6 +58,15 @@ def stats():
         med_from_l.append(median(by_day.get(d, {})['f']) if d in by_day else None)
         med_to_l.append(median(by_day.get(d, {})['t']) if d in by_day else None)
 
+    # продлеваем линии: день без данных держит предыдущее значение
+    for lst in (med_from_l, med_to_l):
+        last = None
+        for i, v in enumerate(lst):
+            if v is None:
+                lst[i] = last
+            else:
+                last = v
+
     new_today = conn.execute("SELECT COUNT(*) as c FROM vacancies WHERE published_date=?", (today,)).fetchone()['c']
     cnt_yest = conn.execute("SELECT COUNT(*) as c FROM vacancies WHERE published_date=?", (yesterday,)).fetchone()['c']
 
