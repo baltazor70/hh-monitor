@@ -122,10 +122,11 @@ function badge(el,p){
   el.textContent=(p>=0?'▲ +':'▼ ')+p+'%';
 }
 function vacRows(list, withDate){
-  return '<tr><th>Вакансия</th><th>Зарплата</th>'+(withDate?'<th>Дата</th>':'')+'</tr>' +
+  return '<tr><th>Вакансия</th><th>Зарплата</th><th>Формат</th>'+(withDate?'<th>Дата</th>':'')+'</tr>' +
     list.map(v=>`<tr>
       <td><a href="${v.url}" target="_blank">${v.name}</a><div class="muted">${v.employer||''}</div></td>
       <td class="salary">${sal(v)}</td>
+      <td class="muted">${v.schedule||'—'}</td>
       ${withDate?`<td class="muted">${v.date}</td>`:''}</tr>`).join('');
 }
 document.getElementById('date').textContent =

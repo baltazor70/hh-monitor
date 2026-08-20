@@ -79,7 +79,8 @@ def stats():
     week_med_to = median([r['salary_to'] for r in week_sal])
 
     top_salaries = conn.execute("""
-        SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date
+        SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date,
+               (SELECT GROUP_CONCAT(format_name, ' / ') FROM vacancy_formats f WHERE f.vacancy_id = vacancies.id) AS formats
         FROM vacancies WHERE published_date >= ? AND salary_to IS NOT NULL AND salary_currency IN ('RUB','RUR')
         ORDER BY salary_to DESC LIMIT 10
     """, (monday,)).fetchall()
@@ -112,12 +113,14 @@ def stats():
     """, (monday,)).fetchall()
 
     today_list = conn.execute("""
-        SELECT name, employer_name, salary_from, salary_to, alternate_url
+        SELECT name, employer_name, salary_from, salary_to, alternate_url,
+               (SELECT GROUP_CONCAT(format_name, ' / ') FROM vacancy_formats f WHERE f.vacancy_id = vacancies.id) AS formats
         FROM vacancies WHERE published_date = ? ORDER BY first_seen_at DESC
     """, (today,)).fetchall()
 
     week_list = conn.execute("""
-        SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date
+        SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date,
+               (SELECT GROUP_CONCAT(format_name, ' / ') FROM vacancy_formats f WHERE f.vacancy_id = vacancies.id) AS formats
         FROM vacancies WHERE published_date >= ?
         ORDER BY published_date DESC, first_seen_at DESC LIMIT 200
     """, (monday,)).fetchall()
@@ -131,12 +134,12 @@ def stats():
         'weekly': weekly,
         'top': [{'name': r['employer_name'], 'count': r['c']} for r in top],
         'top_salaries': [{'name': r['name'], 'employer': r['employer_name'], 'from': r['salary_from'],
-                          'to': r['salary_to'], 'url': r['alternate_url'], 'date': r['published_date']} for r in top_salaries],
+                          'to': r['salary_to'], 'schedule': r['formats'] or '—', 'url': r['alternate_url'], 'date': r['published_date']} for r in top_salaries],
         'experience': [{'name': r['experience_name'], 'count': r['c']} for r in experience_dist],
         'today_list': [{'name': r['name'], 'employer': r['employer_name'], 'from': r['salary_from'],
-                        'to': r['salary_to'], 'url': r['alternate_url']} for r in today_list],
+                        'to': r['salary_to'], 'schedule': r['formats'] or '—', 'url': r['alternate_url']} for r in today_list],
         'week_list': [{'name': r['name'], 'employer': r['employer_name'], 'from': r['salary_from'],
-                       'to': r['salary_to'], 'url': r['alternate_url'], 'date': r['published_date']} for r in week_list],
+                       'to': r['salary_to'], 'schedule': r['formats'] or '—', 'url': r['alternate_url'], 'date': r['published_date']} for r in week_list],
     })
 
 if __name__ == '__main__':
