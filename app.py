@@ -88,6 +88,7 @@ def stats():
         for x in lst:
             if x is None: x = last
             else: last = x
+            out.append(x)
         first = next((x for x in out if x is not None), None)
         return [x if x is not None else first for x in out]
     med_from_l = _fill(med_from_l)
