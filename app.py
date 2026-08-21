@@ -83,6 +83,16 @@ def stats():
         WHERE published_date >= ? AND archived=0 AND salary_currency IN ('RUB','RUR')
     """, (monday,)).fetchall()
     week_total = conn.execute("SELECT COUNT(*) as c FROM vacancies WHERE published_date>=?", (monday,)).fetchone()['c']
+    def _fill(lst):
+        out, last = [], None
+        for x in lst:
+            if x is None: x = last
+            else: last = x
+        first = next((x for x in out if x is not None), None)
+        return [x if x is not None else first for x in out]
+    med_from_l = _fill(med_from_l)
+    med_to_l = _fill(med_to_l)
+
     week_med_from = median([r['salary_from'] for r in week_sal])
     week_med_to = median([r['salary_to'] for r in week_sal])
 
