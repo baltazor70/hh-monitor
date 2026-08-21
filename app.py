@@ -66,6 +66,14 @@ def stats():
                 lst[i] = last
             else:
                 last = v
+    # заполняем начало недели первым известным значением
+    for lst in (med_from_l, med_to_l):
+        last = None
+        for i in range(len(lst) - 1, -1, -1):
+            if lst[i] is None:
+                lst[i] = last
+            else:
+                last = lst[i]
 
     new_today = conn.execute("SELECT COUNT(*) as c FROM vacancies WHERE published_date=?", (today,)).fetchone()['c']
     cnt_yest = conn.execute("SELECT COUNT(*) as c FROM vacancies WHERE published_date=?", (yesterday,)).fetchone()['c']
