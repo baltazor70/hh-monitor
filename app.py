@@ -35,14 +35,14 @@ def stats():
 
     counts_rows = conn.execute("""
         SELECT published_date as d, COUNT(*) as total
-        FROM vacancies WHERE published_date >= ?
+        FROM vacancies WHERE published_date >= ? AND archived=0
         GROUP BY published_date
     """, (cutoff,)).fetchall()
     counts_by = {r['d']: r['total'] for r in counts_rows}
 
     sal_rows = conn.execute("""
         SELECT published_date as d, salary_from, salary_to FROM vacancies
-        WHERE published_date >= ? AND salary_currency IN ('RUB','RUR')
+        WHERE published_date >= ? AND archived=0 AND salary_currency IN ('RUB','RUR')
     """, (cutoff,)).fetchall()
     by_day = {}
     for r in sal_rows:
@@ -72,7 +72,7 @@ def stats():
 
     week_sal = conn.execute("""
         SELECT salary_from, salary_to FROM vacancies
-        WHERE published_date >= ? AND salary_currency IN ('RUB','RUR')
+        WHERE published_date >= ? AND archived=0 AND salary_currency IN ('RUB','RUR')
     """, (monday,)).fetchall()
     week_total = conn.execute("SELECT COUNT(*) as c FROM vacancies WHERE published_date>=?", (monday,)).fetchone()['c']
     week_med_from = median([r['salary_from'] for r in week_sal])
@@ -81,7 +81,7 @@ def stats():
     top_salaries = conn.execute("""
         SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date,
                (SELECT GROUP_CONCAT(format_name, ' / ') FROM vacancy_formats f WHERE f.vacancy_id = vacancies.id) AS formats
-        FROM vacancies WHERE published_date >= ? AND salary_to IS NOT NULL AND salary_currency IN ('RUB','RUR')
+        FROM vacancies WHERE published_date >= ? AND archived=0 AND salary_to IS NOT NULL AND salary_currency IN ('RUB','RUR')
         ORDER BY salary_to DESC LIMIT 10
     """, (monday,)).fetchall()
 
@@ -102,28 +102,39 @@ def stats():
 
     top = conn.execute("""
         SELECT employer_name, COUNT(*) as c FROM vacancies
-        WHERE published_date >= ? AND employer_name IS NOT NULL
+        WHERE published_date >= ? AND archived=0 AND employer_name IS NOT NULL
         GROUP BY employer_name ORDER BY c DESC LIMIT 5
     """, (monday,)).fetchall()
+
+    archived_week = conn.execute("""
+        SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date
+        FROM vacancies WHERE archived=1 AND published_date >= ?
+        ORDER BY published_date DESC
+    """, (monday,)).fetchall()
+    archived_count = len(archived_week)
+    total_week = conn.execute("""
+        SELECT COUNT(*) FROM vacancies WHERE published_date >= ?
+    """, (monday,)).fetchone()[0]
+    archived_pct = round(archived_count / total_week * 100, 1) if total_week > 0 else 0
 
     top_skills = conn.execute("""
         SELECT s.skill_name AS name, COUNT(*) AS c
         FROM vacancy_skills s JOIN vacancies v ON v.id = s.vacancy_id
-        WHERE v.published_date >= ?
-        GROUP BY s.skill_name ORDER BY c DESC LIMIT 15
+        WHERE v.published_date >= ? AND v.archived=0
+        GROUP BY s.skill_name ORDER BY c DESC, s.skill_name
     """, (monday,)).fetchall()
 
     today_list = conn.execute("""
         SELECT name, employer_name, salary_from, salary_to, alternate_url,
                (SELECT GROUP_CONCAT(format_name, ' / ') FROM vacancy_formats f WHERE f.vacancy_id = vacancies.id) AS formats
-        FROM vacancies WHERE published_date = ? ORDER BY first_seen_at DESC
+        FROM vacancies WHERE published_date = ? AND archived=0 ORDER BY first_seen_at DESC
     """, (today,)).fetchall()
 
     week_list = conn.execute("""
         SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date,
                (SELECT GROUP_CONCAT(format_name, ' / ') FROM vacancy_formats f WHERE f.vacancy_id = vacancies.id) AS formats,
                (SELECT GROUP_CONCAT(skill_name, ', ') FROM vacancy_skills sk WHERE sk.vacancy_id = vacancies.id) AS skills, experience_name
-        FROM vacancies WHERE published_date >= ?
+        FROM vacancies WHERE published_date >= ? AND archived=0
         ORDER BY published_date DESC, first_seen_at DESC LIMIT 200
     """, (monday,)).fetchall()
 
@@ -138,6 +149,9 @@ def stats():
         'top_salaries': [{'name': r['name'], 'employer': r['employer_name'], 'from': r['salary_from'],
                           'to': r['salary_to'], 'schedule': r['formats'] or '—', 'url': r['alternate_url'], 'date': r['published_date']} for r in top_salaries],
         'top_skills': [{'name': r['name'], 'count': r['c']} for r in top_skills],
+        'archived_list': [{'name': r['name'], 'employer': r['employer_name'], 'from': r['salary_from'], 'to': r['salary_to'], 'url': r['alternate_url'], 'date': r['published_date']} for r in archived_week],
+        'archived_count': archived_count,
+        'archived_pct': archived_pct,
         'today_list': [{'name': r['name'], 'employer': r['employer_name'], 'from': r['salary_from'],
                         'to': r['salary_to'], 'schedule': r['formats'] or '—', 'url': r['alternate_url']} for r in today_list],
         'week_list': [{'name': r['name'], 'employer': r['employer_name'], 'from': r['salary_from'],

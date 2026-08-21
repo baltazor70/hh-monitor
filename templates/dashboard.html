@@ -106,6 +106,10 @@
     <summary>🏢 Топ компаний за неделю</summary>
     <div class="inner"><table id="topTable"></table></div>
   </details>
+  <details class="card">
+    <summary>📦 Архив закрытых за неделю (<span id="cntArchived">0</span> · <span id="pctArchived">0</span>%)</summary>
+    <div class="inner"><table id="archivedTable"></table></div>
+  </details>
 </div>
 
 <div class="grid">
@@ -220,6 +224,9 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
   document.getElementById('todayTable').innerHTML = vacRows(d.today_list, false);
 
   document.getElementById('cntWeek').textContent = d.week_list.length;
+  document.getElementById('cntArchived').textContent = d.archived_count;
+  document.getElementById('pctArchived').textContent = d.archived_pct;
+  document.getElementById('archivedTable').innerHTML = vacRows(d.archived_list, true);
   WEEKS = d.week_list;
   renderWeek();
 
