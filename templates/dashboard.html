@@ -76,7 +76,7 @@
     <summary>🆕 Новые сегодня (<span id="cntToday">0</span>)</summary>
     <div class="inner"><table id="todayTable"></table></div>
   </details>
-  <details class="card">
+  <details class="card" id="weekDetails">
     <summary>📅 Новые за неделю (<span id="cntWeek">0</span>)</summary>
     <div class="inner">
       <div class="chips">
@@ -93,9 +93,14 @@
 </div>
 
 <div class="grid charts">
-  <details class="card">
-    <summary>🎯 Расклад по опыту (неделя)</summary>
-    <div class="inner"><div class="chartbox"><canvas id="chartExperience"></canvas></div></div>
+  <details class="card" open>
+    <summary>🧱 Опыт и навыки (нажми на кирпичик — фильтр вакансий)</summary>
+    <div class="inner">
+      <div class="muted" style="margin:0 0 6px;font-size:12px">Опыт</div>
+      <div class="chips" id="expChips"></div>
+      <div class="muted" style="margin:12px 0 6px;font-size:12px">Ключевые навыки</div>
+      <div class="chips" id="skillChips"></div>
+    </div>
   </details>
   <details class="card">
     <summary>🏢 Топ компаний за неделю</summary>
@@ -132,10 +137,12 @@ function vacRows(list, withDate){
 document.getElementById('date').textContent =
   new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
 
-let WEEKS = [], mode = {min:0, paid:false};
+let WEEKS = [], mode = {min:0, paid:false, skill:null, exp:null};
 
 function renderWeek(){
   const list = WEEKS.filter(v=>{
+    if(mode.skill && !(v.skills||'').split(', ').includes(mode.skill)) return false;
+    if(mode.exp && v.experience!==mode.exp) return false;
     const has = v.from!=null || v.to!=null;
     if(mode.paid && !has) return false;
     if(mode.min>0){
@@ -146,7 +153,7 @@ function renderWeek(){
     }
     return true;
   });
-  document.getElementById('vacCount').textContent = `Показано ${list.length} из ${WEEKS.length}`;
+  document.getElementById('vacCount').textContent = `Показано ${list.length} из ${WEEKS.length}` + (mode.skill ? ` · навык: ${mode.skill}` : '') + (mode.exp ? ` · опыт: ${mode.exp}` : '');
   document.getElementById('weekTable').innerHTML = vacRows(list, true);
 }
 
@@ -159,6 +166,19 @@ document.querySelectorAll('.chip').forEach(ch=>{
   });
 });
 
+let skillsChart = null;
+function setExp(name){
+  mode.exp = (mode.exp===name) ? null : name;
+  document.querySelectorAll('.expchip').forEach(c=>c.classList.toggle('active', c.dataset.exp===mode.exp));
+  document.getElementById('weekDetails').open = true;
+  renderWeek();
+}
+function setSkill(name){
+  mode.skill = (mode.skill===name) ? null : name;
+  document.querySelectorAll('.skillchip').forEach(c=>c.classList.toggle('active', c.dataset.skill===mode.skill));
+  document.getElementById('weekDetails').open = true;
+  renderWeek();
+}
 fetch('/api/stats').then(r=>r.json()).then(d=>{
   document.getElementById('kToday').textContent = fmt(d.kpi.new_today);
   badge(document.getElementById('kTodayPct'), d.kpi.day_growth);
@@ -195,13 +215,6 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
     options:{plugins:{legend:{labels:{color:'#8b93a7'}}},
       scales:{x:{ticks,grid:{display:false}},y:{ticks,grid}}}
   });
-  new Chart(document.getElementById('chartExperience'),{
-    type:'doughnut',
-    data:{labels:d.experience.map(e=>e.name),
-      datasets:[{data:d.experience.map(e=>e.count),
-        backgroundColor:['#5b8cff','#3ddc84','#ff6b6b','#ffd93d','#6c5ce7']}]},
-    options:{plugins:{legend:{position:'bottom',labels:{color:'#8b93a7'}}}}
-  });
 
   document.getElementById('cntToday').textContent = d.today_list.length;
   document.getElementById('todayTable').innerHTML = vacRows(d.today_list, false);
@@ -215,6 +228,16 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
     d.top.map(t=>`<tr><td>${t.name}</td><td>${t.count}</td></tr>`).join('');
 
   document.getElementById('topSalariesTable').innerHTML = vacRows(d.top_salaries, true);
+
+  document.getElementById('skillChips').innerHTML = d.top_skills.map(sk=>
+    `<button class="chip skillchip" data-skill="${sk.name}">${sk.name} · ${sk.count}</button>`).join('');
+  document.querySelectorAll('.skillchip').forEach(ch=>ch.addEventListener('click',()=>setSkill(ch.dataset.skill)));
+
+  const expM = {};
+  WEEKS.forEach(v=>{ if(v.experience) expM[v.experience]=(expM[v.experience]||0)+1; });
+  document.getElementById('expChips').innerHTML = Object.entries(expM).sort((a,b)=>b[1]-a[1]).map(e=>
+    `<button class="chip expchip" data-exp="${e[0]}">${e[0]} · ${e[1]}</button>`).join('');
+  document.querySelectorAll('.expchip').forEach(ch=>ch.addEventListener('click',()=>setExp(ch.dataset.exp)));
 });
 </script>
 </body>

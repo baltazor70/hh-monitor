@@ -162,6 +162,11 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
                 INSERT OR IGNORE INTO vacancy_formats (vacancy_id, format_id, format_name)
                 VALUES (?, ?, ?)
             """, (vacancy_id, wf.get('id'), wf.get('name')))
+        for sk in ((full.get('key_skills') or []) if full else []):
+            conn.execute("""
+                INSERT OR IGNORE INTO vacancy_skills (vacancy_id, skill_name)
+                VALUES (?, ?)
+            """, (vacancy_id, sk.get('name')))
         print(f"[{datetime.now(MSK)}] Added: {vacancy.get('name')} [{schedule_name or 'без формата'}]")
     else:
         conn.execute("""
