@@ -108,6 +108,21 @@ def stats():
         "SELECT * FROM weekly_reports WHERE week_start = ?",
         ((now - timedelta(days=now.weekday() + 7)).date().isoformat(),)
     ).fetchone()
+    prev_monday = (now - timedelta(days=now.weekday() + 7)).date().isoformat()
+    prev_same_day = (now - timedelta(days=7)).date().isoformat()
+    sd_rows = conn.execute(
+        "SELECT salary_from, salary_to FROM vacancies WHERE published_date BETWEEN ? AND ? AND salary_currency IN ('RUB','RUR')",
+        (prev_monday, prev_same_day)).fetchall()
+    sd_total = conn.execute(
+        "SELECT COUNT(*) FROM vacancies WHERE published_date BETWEEN ? AND ?",
+        (prev_monday, prev_same_day)).fetchone()[0]
+    def _med(vals):
+        vals = sorted(v for v in vals if v is not None)
+        if not vals: return None
+        n = len(vals); m = n // 2
+        return vals[m] if n % 2 else round((vals[m-1] + vals[m]) / 2)
+    sd_from = _med([r['salary_from'] for r in sd_rows])
+    sd_to = _med([r['salary_to'] for r in sd_rows])
     weekly = {
         'week_start': monday,
         'week_end': (now - timedelta(days=now.weekday()) + timedelta(days=4)).date().isoformat(),
@@ -120,6 +135,12 @@ def stats():
         'prev_total': prev['total_vacancies'] if prev else None,
         'prev_from': prev['med_salary_from'] if prev else None,
         'prev_to': prev['med_salary_to'] if prev else None,
+        'sd_total': sd_total,
+        'sd_from': sd_from,
+        'sd_to': sd_to,
+        'growth_total_sd': pct(week_total, sd_total) if sd_total else None,
+        'growth_from_sd': pct(week_med_from, sd_from) if sd_from else None,
+        'growth_to_sd': pct(week_med_to, sd_to) if sd_to else None,
     }
 
     top = conn.execute("""

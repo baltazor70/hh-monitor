@@ -130,6 +130,14 @@ function badge(el,p,na){
   el.className='badge '+(p>=0?'up':'down');
   el.textContent=(p>=0?'▲ +':'▼ ')+p+'%';
 }
+function addSd(id,p,na){
+  const host=document.getElementById(id).parentElement;
+  let el=document.getElementById(id+'Sd');
+  if(!el){el=document.createElement('span');el.id=id+'Sd';el.style.marginLeft='6px';host.appendChild(el);}
+  if(p==null){el.className='badge na';el.textContent=na||'к этому дню прошлой: —';return;}
+  el.className='badge '+(p>=0?'up':'down');
+  el.textContent='к этому дню прошлой: '+(p>=0?'▲ +':'▼ ')+p+'%';
+}
 function vacRows(list, withDate){
   return '<tr><th>Вакансия</th><th>Зарплата</th><th>Формат</th>'+(withDate?'<th>Дата</th>':'')+'</tr>' +
     list.map(v=>`<tr>
@@ -199,6 +207,12 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
     badge(document.getElementById('wTotalPct'), (d.weekly.total===0)?null:d.weekly.growth_total, (d.weekly.total===0&&d.weekly.prev_total!=null)?'прошлая неделя: '+d.weekly.prev_total:null);
     badge(document.getElementById('wFromPct'), (d.weekly.med_from==null)?null:d.weekly.growth_from, (d.weekly.med_from==null&&d.weekly.prev_from!=null)?'прошлая неделя: '+fmtMoney(d.weekly.prev_from):null);
     badge(document.getElementById('wToPct'), (d.weekly.med_to==null)?null:d.weekly.growth_to, (d.weekly.med_to==null&&d.weekly.prev_to!=null)?'прошлая неделя: '+fmtMoney(d.weekly.prev_to):null);
+  {
+    const w=d.weekly, e=w.total===0;
+    addSd('wTotalPct', e?null:w.growth_total_sd, e&&w.sd_total!=null?'прошлая неделя к этому дню: '+w.sd_total:null);
+    addSd('wFromPct', w.med_from==null?null:w.growth_from_sd, w.med_from==null&&w.sd_from!=null?'прошлая неделя к этому дню: '+fmtMoney(w.sd_from):null);
+    addSd('wToPct', w.med_to==null?null:w.growth_to_sd, w.med_to==null&&w.sd_to!=null?'прошлая неделя к этому дню: '+fmtMoney(w.sd_to):null);
+  }
   }
 
   const grid={color:'rgba(255,255,255,.08)'};
