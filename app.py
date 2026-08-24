@@ -117,6 +117,9 @@ def stats():
         'growth_total': pct(week_total, prev['total_vacancies']) if prev else None,
         'growth_from': pct(week_med_from, prev['med_salary_from']) if prev else None,
         'growth_to': pct(week_med_to, prev['med_salary_to']) if prev else None,
+        'prev_total': prev['total_vacancies'] if prev else None,
+        'prev_from': prev['med_salary_from'] if prev else None,
+        'prev_to': prev['med_salary_to'] if prev else None,
     }
 
     top = conn.execute("""

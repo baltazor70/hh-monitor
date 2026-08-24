@@ -125,8 +125,8 @@ const fmt = n => n==null ? '—' : Number(n).toLocaleString('ru-RU');
 const fmtMoney = n => n==null ? '—' : Number(n).toLocaleString('ru-RU')+' ₽';
 const sal = v => (v.from==null && v.to==null) ? '—' :
   `${v.from!=null?fmt(v.from):'…'} – ${v.to!=null?fmt(v.to):'…'}`;
-function badge(el,p){
-  if(p==null){el.className='badge na';el.textContent='нет сравнения';return;}
+function badge(el,p,na){
+  if(p==null){el.className='badge na';el.textContent=na||'нет сравнения';return;}
   el.className='badge '+(p>=0?'up':'down');
   el.textContent=(p>=0?'▲ +':'▼ ')+p+'%';
 }
@@ -196,9 +196,9 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
     document.getElementById('wTotal').textContent = fmt(d.weekly.total);
     document.getElementById('wFrom').textContent = fmtMoney(d.weekly.med_from);
     document.getElementById('wTo').textContent = fmtMoney(d.weekly.med_to);
-    badge(document.getElementById('wTotalPct'), d.weekly.growth_total);
-    badge(document.getElementById('wFromPct'), d.weekly.growth_from);
-    badge(document.getElementById('wToPct'), d.weekly.growth_to);
+    badge(document.getElementById('wTotalPct'), (d.weekly.total===0)?null:d.weekly.growth_total, (d.weekly.total===0&&d.weekly.prev_total!=null)?'прошлая неделя: '+d.weekly.prev_total:null);
+    badge(document.getElementById('wFromPct'), (d.weekly.med_from==null)?null:d.weekly.growth_from, (d.weekly.med_from==null&&d.weekly.prev_from!=null)?'прошлая неделя: '+fmtMoney(d.weekly.prev_from):null);
+    badge(document.getElementById('wToPct'), (d.weekly.med_to==null)?null:d.weekly.growth_to, (d.weekly.med_to==null&&d.weekly.prev_to!=null)?'прошлая неделя: '+fmtMoney(d.weekly.prev_to):null);
   }
 
   const grid={color:'rgba(255,255,255,.08)'};
