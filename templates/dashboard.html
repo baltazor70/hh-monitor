@@ -114,6 +114,13 @@
 
 <div class="grid">
   <details class="card">
+    <summary>🏖 Вакансии за выходные (<span id="cntWeekend">0</span>)</summary>
+    <div class="inner"><table id="weekendTable"></table></div>
+  </details>
+</div>
+
+<div class="grid">
+  <details class="card">
     <summary>🔥 Топ-10 зарплат недели</summary>
     <div class="inner"><table id="topSalariesTable"></table></div>
   </details>
@@ -213,6 +220,8 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
     addSd('wFromPct', w.med_from==null?null:w.growth_from_sd, w.med_from==null&&w.sd_from!=null?'прошлая неделя к этому дню: '+fmtMoney(w.sd_from):null);
     addSd('wToPct', w.med_to==null?null:w.growth_to_sd, w.med_to==null&&w.sd_to!=null?'прошлая неделя к этому дню: '+fmtMoney(w.sd_to):null);
   }
+  document.getElementById('cntWeekend').textContent = (d.weekly.weekend||[]).length;
+  document.getElementById('weekendTable').innerHTML = (d.weekly.weekend||[]).length ? vacRows(d.weekly.weekend, true) : '<tr><td class="muted">За последние выходные вакансий не было</td></tr>';
   }
 
   const grid={color:'rgba(255,255,255,.08)'};

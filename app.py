@@ -123,6 +123,13 @@ def stats():
         return vals[m] if n % 2 else round((vals[m-1] + vals[m]) / 2)
     sd_from = _med([r['salary_from'] for r in sd_rows])
     sd_to = _med([r['salary_to'] for r in sd_rows])
+    weekend_vacs = conn.execute(
+        "SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date "
+        "FROM vacancies WHERE archived=0 AND strftime('%w', published_date) IN ('0','6') "
+        "AND published_date >= ? ORDER BY published_date DESC", (cutoff,)).fetchall()
+    weekend_list = [{'url': r['alternate_url'], 'name': r['name'], 'employer': r['employer_name'],
+                     'from': r['salary_from'], 'to': r['salary_to'], 'date': r['published_date']}
+                    for r in weekend_vacs]
     weekly = {
         'week_start': monday,
         'week_end': (now - timedelta(days=now.weekday()) + timedelta(days=4)).date().isoformat(),
@@ -141,6 +148,7 @@ def stats():
         'growth_total_sd': pct(week_total, sd_total) if sd_total else None,
         'growth_from_sd': pct(week_med_from, sd_from) if sd_from else None,
         'growth_to_sd': pct(week_med_to, sd_to) if sd_to else None,
+        'weekend': weekend_list,
     }
 
     top = conn.execute("""
