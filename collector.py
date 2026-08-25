@@ -45,6 +45,12 @@ ROLE_GROUPS = {
         '"head of line 2"',
         '"head of first line"',
         '"head of second line"',
+        '"руководитель сервиса поддержки"',
+        '"руководитель сервиса технической поддержки"',
+        '"начальник сервиса поддержки"',
+        '"начальник сервиса технической поддержки"',
+        '"head of service support"',
+        '"service support manager"',
     ],
     "team_lead_support": [
         '"team lead support"',
@@ -71,6 +77,10 @@ ROLE_GROUPS = {
         '"team lead second line"',
         '"teamlead first line"',
         '"teamlead second line"',
+        '"тимлид сервиса поддержки"',
+        '"тимлид сервиса технической поддержки"',
+        '"team lead service support"',
+        '"teamlead service support"',
     ],
     "it_head": [
         '"руководитель ИТ отдела"',
