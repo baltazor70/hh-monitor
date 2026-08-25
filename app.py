@@ -35,14 +35,14 @@ def stats():
 
     counts_rows = conn.execute("""
         SELECT published_date as d, COUNT(*) as total
-        FROM vacancies WHERE published_date >= ? AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND archived=0
+        FROM vacancies WHERE published_date >= ? AND (lower(name) LIKE '%поддержк%' OR lower(name) LIKE '%support%' OR lower(name) LIKE '%service desk%' OR lower(name) LIKE '%helpdesk%' OR lower(name) LIKE '%customer success%' OR lower(name) LIKE '%customer service%' OR lower(name) LIKE '%клиентского сервиса%' OR lower(name) LIKE '%itsm%') AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND archived=0
         GROUP BY published_date
     """, (cutoff,)).fetchall()
     counts_by = {r['d']: r['total'] for r in counts_rows}
 
     sal_rows = conn.execute("""
         SELECT published_date as d, salary_from, salary_to FROM vacancies
-        WHERE published_date >= ? AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND archived=0 AND salary_currency IN ('RUB','RUR')
+        WHERE published_date >= ? AND (lower(name) LIKE '%поддержк%' OR lower(name) LIKE '%support%' OR lower(name) LIKE '%service desk%' OR lower(name) LIKE '%helpdesk%' OR lower(name) LIKE '%customer success%' OR lower(name) LIKE '%customer service%' OR lower(name) LIKE '%клиентского сервиса%' OR lower(name) LIKE '%itsm%') AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND archived=0 AND salary_currency IN ('RUB','RUR')
     """, (cutoff,)).fetchall()
     by_day = {}
     for r in sal_rows:
@@ -80,7 +80,7 @@ def stats():
 
     week_sal = conn.execute("""
         SELECT salary_from, salary_to FROM vacancies
-        WHERE published_date >= ? AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND archived=0 AND salary_currency IN ('RUB','RUR')
+        WHERE published_date >= ? AND (lower(name) LIKE '%поддержк%' OR lower(name) LIKE '%support%' OR lower(name) LIKE '%service desk%' OR lower(name) LIKE '%helpdesk%' OR lower(name) LIKE '%customer success%' OR lower(name) LIKE '%customer service%' OR lower(name) LIKE '%клиентского сервиса%' OR lower(name) LIKE '%itsm%') AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND archived=0 AND salary_currency IN ('RUB','RUR')
     """, (monday,)).fetchall()
     week_total = conn.execute("SELECT COUNT(*) as c FROM vacancies WHERE published_date>=?", (monday,)).fetchone()['c']
     def _fill(lst):
@@ -100,7 +100,7 @@ def stats():
     top_salaries = conn.execute("""
         SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date,
                (SELECT GROUP_CONCAT(format_name, ' / ') FROM vacancy_formats f WHERE f.vacancy_id = vacancies.id) AS formats
-        FROM vacancies WHERE published_date >= ? AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND archived=0 AND salary_to IS NOT NULL AND salary_currency IN ('RUB','RUR')
+        FROM vacancies WHERE published_date >= ? AND (lower(name) LIKE '%поддержк%' OR lower(name) LIKE '%support%' OR lower(name) LIKE '%service desk%' OR lower(name) LIKE '%helpdesk%' OR lower(name) LIKE '%customer success%' OR lower(name) LIKE '%customer service%' OR lower(name) LIKE '%клиентского сервиса%' OR lower(name) LIKE '%itsm%') AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND archived=0 AND salary_to IS NOT NULL AND salary_currency IN ('RUB','RUR')
         ORDER BY salary_to DESC LIMIT 10
     """, (monday,)).fetchall()
 
@@ -126,7 +126,7 @@ def stats():
     weekend_vacs = conn.execute(
         "SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date "
         "FROM vacancies WHERE archived=0 AND strftime('%w', published_date) IN ('0','6') "
-        "AND published_date >= ? AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' ORDER BY published_date DESC", (cutoff,)).fetchall()
+        "AND published_date >= ? AND (lower(name) LIKE '%поддержк%' OR lower(name) LIKE '%support%' OR lower(name) LIKE '%service desk%' OR lower(name) LIKE '%helpdesk%' OR lower(name) LIKE '%customer success%' OR lower(name) LIKE '%customer service%' OR lower(name) LIKE '%клиентского сервиса%' OR lower(name) LIKE '%itsm%') AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' ORDER BY published_date DESC", (cutoff,)).fetchall()
     weekend_list = [{'url': r['alternate_url'], 'name': r['name'], 'employer': r['employer_name'],
                      'from': r['salary_from'], 'to': r['salary_to'], 'date': r['published_date']}
                     for r in weekend_vacs]
@@ -163,25 +163,25 @@ def stats():
 
     top = conn.execute("""
         SELECT employer_name, COUNT(*) as c FROM vacancies
-        WHERE published_date >= ? AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND archived=0 AND employer_name IS NOT NULL
+        WHERE published_date >= ? AND (lower(name) LIKE '%поддержк%' OR lower(name) LIKE '%support%' OR lower(name) LIKE '%service desk%' OR lower(name) LIKE '%helpdesk%' OR lower(name) LIKE '%customer success%' OR lower(name) LIKE '%customer service%' OR lower(name) LIKE '%клиентского сервиса%' OR lower(name) LIKE '%itsm%') AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND archived=0 AND employer_name IS NOT NULL
         GROUP BY employer_name ORDER BY c DESC LIMIT 5
     """, (monday,)).fetchall()
 
     archived_week = conn.execute("""
         SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date
-        FROM vacancies WHERE archived=1 AND published_date >= ? AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%'
+        FROM vacancies WHERE archived=1 AND published_date >= ? AND (lower(name) LIKE '%поддержк%' OR lower(name) LIKE '%support%' OR lower(name) LIKE '%service desk%' OR lower(name) LIKE '%helpdesk%' OR lower(name) LIKE '%customer success%' OR lower(name) LIKE '%customer service%' OR lower(name) LIKE '%клиентского сервиса%' OR lower(name) LIKE '%itsm%') AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%'
         ORDER BY published_date DESC
     """, (monday,)).fetchall()
     archived_count = len(archived_week)
     total_week = conn.execute("""
-        SELECT COUNT(*) FROM vacancies WHERE published_date >= ? AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%'
+        SELECT COUNT(*) FROM vacancies WHERE published_date >= ? AND (lower(name) LIKE '%поддержк%' OR lower(name) LIKE '%support%' OR lower(name) LIKE '%service desk%' OR lower(name) LIKE '%helpdesk%' OR lower(name) LIKE '%customer success%' OR lower(name) LIKE '%customer service%' OR lower(name) LIKE '%клиентского сервиса%' OR lower(name) LIKE '%itsm%') AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%'
     """, (monday,)).fetchone()[0]
     archived_pct = round(archived_count / total_week * 100, 1) if total_week > 0 else 0
 
     top_skills = conn.execute("""
         SELECT s.skill_name AS name, COUNT(*) AS c
         FROM vacancy_skills s JOIN vacancies v ON v.id = s.vacancy_id
-        WHERE v.published_date >= ? AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND v.archived=0
+        WHERE v.published_date >= ? AND (lower(name) LIKE '%поддержк%' OR lower(name) LIKE '%support%' OR lower(name) LIKE '%service desk%' OR lower(name) LIKE '%helpdesk%' OR lower(name) LIKE '%customer success%' OR lower(name) LIKE '%customer service%' OR lower(name) LIKE '%клиентского сервиса%' OR lower(name) LIKE '%itsm%') AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND v.archived=0
         GROUP BY s.skill_name ORDER BY c DESC, s.skill_name
     """, (monday,)).fetchall()
 
@@ -195,7 +195,7 @@ def stats():
         SELECT name, employer_name, salary_from, salary_to, alternate_url, published_date,
                (SELECT GROUP_CONCAT(format_name, ' / ') FROM vacancy_formats f WHERE f.vacancy_id = vacancies.id) AS formats,
                (SELECT GROUP_CONCAT(skill_name, ', ') FROM vacancy_skills sk WHERE sk.vacancy_id = vacancies.id) AS skills, experience_name
-        FROM vacancies WHERE published_date >= ? AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND archived=0
+        FROM vacancies WHERE published_date >= ? AND (lower(name) LIKE '%поддержк%' OR lower(name) LIKE '%support%' OR lower(name) LIKE '%service desk%' OR lower(name) LIKE '%helpdesk%' OR lower(name) LIKE '%customer success%' OR lower(name) LIKE '%customer service%' OR lower(name) LIKE '%клиентского сервиса%' OR lower(name) LIKE '%itsm%') AND lower(name) NOT LIKE '%руководитель ит отдела%' AND lower(name) NOT LIKE '%руководитель it отдела%' AND lower(name) NOT LIKE '%начальник ит отдела%' AND lower(name) NOT LIKE '%руководитель отдела информационных технологий%' AND archived=0
         ORDER BY published_date DESC, first_seen_at DESC LIMIT 200
     """, (monday,)).fetchall()
 
