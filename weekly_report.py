@@ -99,6 +99,16 @@ def exp_list_html():
     return '\n'.join(f'<li>{r["name"]} — {round(r["c"]*100/t) if t else 0}%</li>' for r in experience)
 def comp_list_html(): return '\n'.join(f'<li>{n}</li>' for n in [r['employer_name'] for r in top_companies])
 
+n_paid = max(len(rows), 1)
+c_to = sum(1 for r in rows if (r['salary_to'] or 0) >= 200000)
+c_from = sum(1 for r in rows if (r['salary_from'] or 0) >= 200000)
+if med_from and med_to:
+    spread = round((med_to - med_from) / med_from * 100)
+    oot = (f"медиана «от» {round(med_from/1000)}K, «до» {round(med_to/1000)}K, разрыв вилки {spread}%. "
+           f"Ролей с «до» ≥ 200K: {c_to} из {len(rows)} ({round(c_to*100/n_paid)}%); с «от» ≥ 200K: {c_from} ({round(c_from*100/n_paid)}%). "
+           + ("Нижняя граница типичной вилки уже выше цели 200K+." if med_from >= 200000 else "Цель 200K+ достижима на верхней границе вилки."))
+else:
+    oot = "мало данных о зарплатах за неделю для анализа «от–до»."
 med_range_k = f"{round(med_from/1000)}–{round(med_to/1000)}K" if med_from and med_to else "—"
 
 html = f"""<!DOCTYPE html>
@@ -134,6 +144,7 @@ html = f"""<!DOCTYPE html>
     <div class="card"><h3>🏢 Топ компаний</h3><ul>{comp_list_html()}</ul></div>
   </div>
   <div class="out"><b>📌 Итоги недели:</b> {comment}</div>
+  <div class="out" style="margin-top:14px;border-color:#334155"><b>💰 Анализ «от–до»:</b> {oot}</div>
 </div></body></html>
 """
 
