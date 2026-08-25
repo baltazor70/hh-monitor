@@ -204,7 +204,7 @@ function setSkill(name){
 }
 fetch('/api/stats').then(r=>r.json()).then(d=>{
   document.getElementById('kToday').textContent = fmt(d.kpi.new_today);
-  badge(document.getElementById('kTodayPct'), d.kpi.day_growth);
+  (function(){var el=document.getElementById('kTodayPct');var p=d.kpi.day_growth;el.className='badge '+(p==null?'na':(p>=0?'up':'down'));el.textContent=p==null?'к тому же дню прошлой недели: —':'к тому же дню прошлой недели: '+(p>=0?'▲ +':'▼ ')+p+'%';})();
   document.getElementById('kWeek').textContent = fmt(d.kpi.week_total);
   document.getElementById('kFrom').textContent = fmtMoney(d.kpi.week_avg_from);
   document.getElementById('kTo').textContent = fmtMoney(d.kpi.week_avg_to);
