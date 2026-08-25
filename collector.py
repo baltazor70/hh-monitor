@@ -118,7 +118,16 @@ def is_relevant_role(vacancy):
         return True
     return any(r.get('id') in ALLOWED_ROLES for r in pro_role)
 
+MANAGER_MARKERS = ('руководитель','head of','lead','тимлид','teamlead','начальник','директор','director','manager','chief')
+EXCLUDE_MARKERS = ('marketing','маркетинг','sales','продаж','разработки','developer','typescript','fullstack','frontend','backend','devops','cloud engineer','data ','hr','финанс','finance','юрист','legal','бухгалтер','логист','logist','закуп')
+
+def is_manager_title(name):
+    n = (name or '').lower()
+    return any(m in n for m in MANAGER_MARKERS) and not any(e in n for e in EXCLUDE_MARKERS)
+
 def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
+    if not is_manager_title(vacancy.get('name')):
+        return False
     if not is_relevant_role(vacancy):
         return 0
 
