@@ -63,7 +63,7 @@ def build_comment():
     if med_to:
         if med_to < MGMT_MED_TO:
             t_pct = round(target * 100 / total, 1) if total else 0
-            parts.append(f"медиана «до» {round(med_to/1000)}K ниже целевого уровня {round(MGMT_MED_TO/1000)}K+ — выборка разбавлена линейными специалистами; лишь {target} вакансий ({t_pct}%) за неделю дотягивают до 200K+")
+            parts.append(f"медиана «до» {round(med_to/1000)}K ниже целевого уровня {round(MGMT_MED_TO/1000)}K+ — выборка чистая (руководящая поддержка); 200K+ — верхний квартиль, его достигают лишь {target} вакансий ({t_pct}%) за неделю дотягивают до 200K+")
         else:
             parts.append(f"медиана «до» {round(med_to/1000)}K соответствует целевому уровню {round(MGMT_MED_TO/1000)}K+")
     if no_salary_pct > 50:
