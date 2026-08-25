@@ -20,6 +20,12 @@ def pct(cur, prev):
     if cur is None or prev is None or prev == 0: return None
     return round((cur - prev) / prev * 100, 1)
 
+@app.route('/weekly')
+def weekly_page():
+    import os
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reports', 'weekly.html')
+    return open(p, encoding='utf-8').read()
+
 @app.route('/')
 def index():
     return render_template('dashboard.html')

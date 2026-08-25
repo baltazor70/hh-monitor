@@ -149,7 +149,8 @@ html = f"""<!DOCTYPE html>
 """
 
 import sys
-OUT = sys.argv[1] if len(sys.argv) > 1 else '/var/www/presentations/weekly.html'
+import os
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reports', 'weekly.html')
 with open(OUT, 'w', encoding='utf-8') as f:
     f.write(html)
 
