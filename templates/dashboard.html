@@ -117,6 +117,10 @@
     <summary>🏖 Вакансии за выходные (<span id="cntWeekend">0</span>)</summary>
     <div class="inner"><table id="weekendTable"></table></div>
   </details>
+  <details class="card">
+    <summary>🎯 Смежные роли: ИТ-руководители (<span id="cntItHead">0</span>)</summary>
+    <div class="inner"><table id="itHeadTable"></table></div>
+  </details>
 </div>
 
 <div class="grid">
@@ -222,6 +226,8 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
   }
   document.getElementById('cntWeekend').textContent = (d.weekly.weekend||[]).length;
   document.getElementById('weekendTable').innerHTML = (d.weekly.weekend||[]).length ? vacRows(d.weekly.weekend, true) : '<tr><td class="muted">За последние выходные вакансий не было</td></tr>';
+  document.getElementById('cntItHead').textContent = (d.weekly.ithead||[]).length;
+  document.getElementById('itHeadTable').innerHTML = (d.weekly.ithead||[]).length ? vacRows(d.weekly.ithead, true) : '<tr><td class="muted">Смежных ролей за неделю не найдено</td></tr>';
   }
 
   const grid={color:'rgba(255,255,255,.08)'};
