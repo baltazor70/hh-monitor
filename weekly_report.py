@@ -14,10 +14,17 @@ MONTHS_RU = {1:'января',2:'февраля',3:'марта',4:'апреля'
 MGMT_MED_TO = 200000  # целевой уровень Head of Support: зарплата от 200K
 
 now = datetime.now(MSK)
-monday = (now - timedelta(days=now.weekday())).date()
-week_start, week_end = monday, monday + timedelta(days=4)
+if now.weekday() == 6:  # воскресенье: финал за завершающуюся неделю
+    week_start = (now - timedelta(days=6)).date()
+    week_end = now.date()
+else:  # пн–сб: снапшот последней ПОЛНОЙ недели, держится до воскресенья
+    week_start = (now - timedelta(days=now.weekday() + 7)).date()
+    week_end = week_start + timedelta(days=6)
 ws_iso, we_iso = week_start.isoformat(), week_end.isoformat()
-date_range = f"{week_start.day}–{week_end.day} {MONTHS_RU[week_start.month]}"
+if week_start.month == week_end.month:
+    date_range = f"{week_start.day}–{week_end.day} {MONTHS_RU[week_start.month]}"
+else:
+    date_range = f"{week_start.day} {MONTHS_RU[week_start.month]} – {week_end.day} {MONTHS_RU[week_end.month]}"
 
 conn = get_db()
 
@@ -130,7 +137,9 @@ html = f"""<!DOCTYPE html>
 </div></body></html>
 """
 
-with open('/var/www/presentations/weekly.html', 'w', encoding='utf-8') as f:
+import sys
+OUT = sys.argv[1] if len(sys.argv) > 1 else '/var/www/presentations/weekly.html'
+with open(OUT, 'w', encoding='utf-8') as f:
     f.write(html)
 
 print(f"[{datetime.now(MSK)}] Weekly KPI: {ws_iso}-{we_iso} total={total} med={med_from}-{med_to}")
