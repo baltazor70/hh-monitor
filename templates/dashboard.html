@@ -145,9 +145,9 @@ function addSd(id,p,na){
   const host=document.getElementById(id).parentElement;
   let el=document.getElementById(id+'Sd');
   if(!el){el=document.createElement('span');el.id=id+'Sd';el.style.marginLeft='6px';host.appendChild(el);}
-  if(p==null){el.className='badge na';el.textContent=na||'к этому дню прошлой: —';return;}
+  if(p==null){el.className='badge na';el.textContent=na||'к тем же дням прошлой недели: —';return;}
   el.className='badge '+(p>=0?'up':'down');
-  el.textContent='к этому дню прошлой: '+(p>=0?'▲ +':'▼ ')+p+'%';
+  el.textContent='к тем же дням прошлой недели: '+(p>=0?'▲ +':'▼ ')+p+'%';
 }
 function vacRows(list, withDate){
   return '<tr><th>Вакансия</th><th>Зарплата</th><th>Формат</th>'+(withDate?'<th>Дата</th>':'')+'</tr>' +
@@ -220,9 +220,9 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
     badge(document.getElementById('wToPct'), (d.weekly.med_to==null)?null:d.weekly.growth_to, (d.weekly.med_to==null&&d.weekly.prev_to!=null)?'прошлая неделя: '+fmtMoney(d.weekly.prev_to):null);
   {
     const w=d.weekly, e=w.total===0;
-    addSd('wTotalPct', e?null:w.growth_total_sd, e&&w.sd_total!=null?'прошлая неделя к этому дню: '+w.sd_total:null);
-    addSd('wFromPct', w.med_from==null?null:w.growth_from_sd, w.med_from==null&&w.sd_from!=null?'прошлая неделя к этому дню: '+fmtMoney(w.sd_from):null);
-    addSd('wToPct', w.med_to==null?null:w.growth_to_sd, w.med_to==null&&w.sd_to!=null?'прошлая неделя к этому дню: '+fmtMoney(w.sd_to):null);
+    addSd('wTotalPct', e?null:w.growth_total_sd, e&&w.sd_total!=null?'прошлая неделя за те же дни: '+w.sd_total:null);
+    addSd('wFromPct', w.med_from==null?null:w.growth_from_sd, w.med_from==null&&w.sd_from!=null?'прошлая неделя за те же дни: '+fmtMoney(w.sd_from):null);
+    addSd('wToPct', w.med_to==null?null:w.growth_to_sd, w.med_to==null&&w.sd_to!=null?'прошлая неделя за те же дни: '+fmtMoney(w.sd_to):null);
   }
   document.getElementById('cntWeekend').textContent = (d.weekly.weekend||[]).length;
   document.getElementById('weekendTable').innerHTML = (d.weekly.weekend||[]).length ? vacRows(d.weekly.weekend, true) : '<tr><td class="muted">За последние выходные вакансий не было</td></tr>';
