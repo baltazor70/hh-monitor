@@ -2,7 +2,7 @@ import httpx
 import os
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from dotenv import load_dotenv
 from database import get_db, MSK
@@ -99,7 +99,16 @@ SCOPES = {
     "remote": {"schedule": "remote"}
 }
 
+TOKEN_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.token')
+
 def get_access_token():
+    try:
+        with open(TOKEN_CACHE) as f:
+            tok, exp = f.read().split()
+        if time.time() < float(exp):
+            return tok
+    except Exception:
+        pass
     for attempt in range(3):
         try:
             response = httpx.post(
@@ -113,7 +122,13 @@ def get_access_token():
                 timeout=30.0
             )
             if response.status_code == 200:
-                return response.json()["access_token"]
+                j = response.json()
+                try:
+                    with open(TOKEN_CACHE, 'w') as f:
+                        f.write("%s %s" % (j["access_token"], time.time() + min(float(j.get('expires_in', 43200)) - 60, 43200)))
+                except Exception:
+                    pass
+                return j["access_token"]
             if response.status_code == 429:
                 time.sleep(60); continue
             time.sleep(10)
@@ -259,6 +274,7 @@ def collect_vacancies():
 
     total_added = 0
     total_skipped = 0
+    cutoff = (datetime.now(MSK) - timedelta(days=3)).date().isoformat()
 
     for role_group, phrases in ROLE_GROUPS.items():
         for phrase in phrases:
@@ -276,6 +292,8 @@ def collect_vacancies():
                             total_added += 1
                         else:
                             total_skipped += 1
+                    if to_msk_date(items[-1].get('published_at')) < cutoff:
+                        break
                     if page >= data.get('pages', 1) - 1:
                         break
                     page += 1
