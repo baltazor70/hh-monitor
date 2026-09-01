@@ -2,15 +2,10 @@ import httpx, os, sqlite3, time
 from dotenv import load_dotenv
 load_dotenv('/opt/hh-monitor/.env')
 
-def get_token():
-    r = httpx.post("https://api.hh.ru/token", data={
-        "grant_type": "client_credentials",
-        "client_id": os.getenv("HH_CLIENT_ID"),
-        "client_secret": os.getenv("HH_CLIENT_SECRET"),
-    }, headers={'User-Agent': os.getenv('HH_USER_AGENT')}, timeout=30)
-    return r.json()['access_token']
-
-token = get_token()
+from token_manager import get_cached_token
+token = get_cached_token()
+if not token:
+    print("Failed to get token"); exit(1)
 conn = sqlite3.connect('/opt/hh-monitor/hh_monitor.db')
 
 rows = conn.execute("SELECT id FROM vacancies WHERE archived=0 AND published_date >= date('now','-21 day')").fetchall()

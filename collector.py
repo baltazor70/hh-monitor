@@ -101,6 +101,8 @@ SCOPES = {
 
 TOKEN_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.token')
 
+from token_manager import get_cached_token
+
 def get_access_token():
     try:
         with open(TOKEN_CACHE) as f:
@@ -109,33 +111,7 @@ def get_access_token():
             return tok
     except Exception:
         pass
-    for attempt in range(3):
-        try:
-            response = httpx.post(
-                f"{BASE_URL}/token",
-                data={
-                    "grant_type": "client_credentials",
-                    "client_id": os.getenv("HH_CLIENT_ID"),
-                    "client_secret": os.getenv("HH_CLIENT_SECRET"),
-                },
-                headers=HEADERS,
-                timeout=30.0
-            )
-            if response.status_code == 200:
-                j = response.json()
-                try:
-                    with open(TOKEN_CACHE, 'w') as f:
-                        f.write("%s %s" % (j["access_token"], time.time() + min(float(j.get('expires_in', 43200)) - 60, 43200)))
-                except Exception:
-                    pass
-                return j["access_token"]
-            if response.status_code == 429:
-                time.sleep(60); continue
-            time.sleep(10)
-        except Exception as e:
-            print(f"[{datetime.now(MSK)}] Token exception: {e}")
-            time.sleep(10)
-    return None
+    return get_cached_token()
 
 def fetch_vacancies(token, text, scope, page=0):
     params = {"text": text, "per_page": 100, "page": page, "order_by": "publication_time"}
@@ -270,6 +246,15 @@ def collect_vacancies():
     token = get_access_token()
     if not token:
         print("Failed to get token after 3 attempts")
+        return
+    
+    # Тестовый запрос для проверки валидности токена
+    test_resp = httpx.get(
+        f"{BASE_URL}/vacancies", params={"text": "test", "per_page": 1},
+        headers={**HEADERS, "Authorization": f"Bearer {token}"}, timeout=10.0
+    )
+    if test_resp.status_code == 401:
+        print("Token invalid (401), aborting early")
         return
 
     total_added = 0
