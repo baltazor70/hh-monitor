@@ -257,6 +257,19 @@ def collect_vacancies():
         print("Token invalid (401), aborting early")
         return
 
+
+    # Fail-fast: тестовый запрос, чтобы не молотить 68 минут при 401
+    try:
+        test = httpx.get(
+            f"{BASE_URL}/vacancies", params={"text": "test", "per_page": 1},
+            headers={**HEADERS, "Authorization": f"Bearer {token}"}, timeout=15.0
+        )
+        if test.status_code == 401:
+            print("Token invalid (401), aborting early")
+            return
+    except Exception:
+        pass
+
     total_added = 0
     total_skipped = 0
     cutoff = (datetime.now(MSK) - timedelta(days=3)).date().isoformat()
