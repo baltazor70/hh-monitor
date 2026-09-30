@@ -1,4 +1,5 @@
 import httpx
+import re
 import os
 import json
 import time
@@ -165,10 +166,44 @@ def is_manager_title(name):
     n = (name or '').lower()
     return any(m in n for m in MANAGER_MARKERS) and not any(e in n for e in EXCLUDE_MARKERS)
 
-def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
-    if not is_manager_title(vacancy.get('name')):
+STRICT_BLACKLIST = [k.strip().lower() for k in os.getenv('STRICT_BLACKLIST', '').split(',') if k.strip()]
+TARGET_COMPANIES = [k.strip().lower() for k in os.getenv('TARGET_COMPANIES', '').split(',') if k.strip()]
+SOFT_BLACKLIST = [k.strip().lower() for k in os.getenv('BLACKLIST', '').split(',') if k.strip()]
+FLEX_KEYWORDS = ['проектная работа', 'гпх', 'частичная занятость', 'гибкий график',
+                 'удаленно', 'удалённо', 'remote', 'asynchronous', 'фриланс', 'contract']
+BUILDER_KEYWORDS = ['с нуля', 'greenfield', 'green field', 'выстроить процессы',
+                    'построить процессы', 'построить с нуля', 'хаос', 'первый сотрудник',
+                    'основатель направления', 'первым сотрудником', 'build from scratch', 'zero to one']
+
+def strict_blacklist_hit(employer_name, description):
+    if not STRICT_BLACKLIST:
         return False
-    if not is_relevant_role(vacancy):
+    text = f"{employer_name or ''} {description or ''}".lower()
+    return any(k in text for k in STRICT_BLACKLIST)
+
+def is_target_company(employer_name):
+    name = (employer_name or '').lower()
+    if SOFT_BLACKLIST and any(k in name for k in SOFT_BLACKLIST):
+        return 0
+    if TARGET_COMPANIES:
+        return 1 if any(k in name for k in TARGET_COMPANIES) else 0
+    return 1
+
+def calc_flexibility_score(full):
+    desc = ((full or {}).get('description') or '').lower()
+    return min(sum(1 for kw in FLEX_KEYWORDS if kw in desc), 3)
+
+def calc_builder_score(full):
+    desc = ((full or {}).get('description') or '').lower()
+    return min(sum(1 for k in BUILDER_KEYWORDS if k in desc), 3)
+
+def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
+    snippet = vacancy.get('snippet') or {}
+    snippet_text = re.sub('<[^>]+>', ' ', f"{snippet.get('requirement') or ''} {snippet.get('responsibility') or ''}").lower()
+    builder_hint = any(k in snippet_text for k in BUILDER_KEYWORDS)
+    if not is_manager_title(vacancy.get('name')) and not builder_hint:
+        return False
+    if not is_relevant_role(vacancy) and not builder_hint:
         return 0
 
     conn = get_db()
@@ -178,16 +213,9 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
 
     existing = conn.execute("SELECT id FROM vacancies WHERE id = ?", (vacancy_id,)).fetchone()
 
-    # Проверка дубликата: тот же работодатель + то же название
     employer_id = vacancy.get('employer', {}).get('id')
-    if not existing and employer_id:
-        if is_duplicate_vacancy(conn, employer_id, vacancy.get('name')):
-            skip_reason = 'duplicate'
-            # Всё равно сохраняем для истории, но помечаем
-        else:
-            skip_reason = None
-    else:
-        skip_reason = None
+    employer_name = vacancy.get('employer', {}).get('name')
+    name_lower = (vacancy.get('name') or '').lower()
 
     salary = vacancy.get('salary') or {}
     experience = vacancy.get('experience') or {}
@@ -204,6 +232,27 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
                 schedule_id, schedule_name = wfs[0].get('id'), wfs[0].get('name')
             time.sleep(1)
 
+        skip_reason, is_dup = None, 0
+        if strict_blacklist_hit(employer_name, (full or {}).get('description')):
+            skip_reason = 'strict_security_risk'
+        elif employer_id:
+            same = conn.execute("""
+                SELECT id, published_date FROM vacancies
+                WHERE employer_id=? AND lower(name)=? AND archived=0 AND skip_reason IS NULL
+            """, (employer_id, name_lower)).fetchall()
+            if same:
+                if any(r[1] > published_date for r in same):
+                    is_dup, skip_reason = 1, 'duplicate'
+                else:
+                    for r in same:
+                        conn.execute("UPDATE vacancies SET skip_reason='duplicate', is_duplicate=1 WHERE id=?", (r[0],))
+        flex_score = calc_flexibility_score(full)
+        builder_score = calc_builder_score(full)
+        if builder_hint and builder_score == 0 and not is_manager_title(vacancy.get('name')):
+            conn.close()
+            return False
+        target = is_target_company(employer_name)
+
         conn.execute("""
             INSERT INTO vacancies (
                 id, name, employer_id, employer_name, area_name,
@@ -211,8 +260,9 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
                 url, alternate_url, apply_alternate_url,
                 published_at, published_date, first_seen_at, last_seen_at,
                 experience_id, experience_name, professional_role_id,
-                schedule_id, schedule_name, raw_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                schedule_id, schedule_name,
+                is_target, skip_reason, flexibility_score, builder_score, is_duplicate, raw_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             vacancy_id, vacancy.get('name'),
             vacancy.get('employer', {}).get('id'), vacancy.get('employer', {}).get('name'),
@@ -223,6 +273,7 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
             datetime.now(MSK).isoformat(), datetime.now(MSK).isoformat(),
             experience.get('id'), experience.get('name'), pro_role_id,
             schedule_id, schedule_name,
+            target, skip_reason, flex_score, builder_score, is_dup,
             json.dumps(vacancy, ensure_ascii=False)
         ))
         for wf in wfs:
@@ -235,7 +286,10 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
                 INSERT OR IGNORE INTO vacancy_skills (vacancy_id, skill_name)
                 VALUES (?, ?)
             """, (vacancy_id, sk.get('name')))
-        print(f"[{datetime.now(MSK)}] Added: {vacancy.get('name')} [{schedule_name or 'без формата'}]")
+        marks = (' SKIP:' + skip_reason) if skip_reason else ''
+        marks += ' 🔥BUILDER' if builder_score else ''
+        marks += ' 🟢FLEX' if flex_score else ''
+        print(f"[{datetime.now(MSK)}] Added: {vacancy.get('name')} [{schedule_name or 'без формата'}]{marks}")
     else:
         conn.execute("""
             UPDATE vacancies SET last_seen_at = ?, experience_id = ?, experience_name = ?, professional_role_id = ?
