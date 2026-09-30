@@ -259,10 +259,12 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
                 salary_from, salary_to, salary_currency, salary_gross,
                 url, alternate_url, apply_alternate_url,
                 published_at, published_date, first_seen_at, last_seen_at,
+                raw_json,
                 experience_id, experience_name, professional_role_id,
                 schedule_id, schedule_name,
-                is_target, skip_reason, flexibility_score, builder_score, is_duplicate, raw_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                archived,
+                is_target, skip_reason, flexibility_score, builder_score, is_duplicate
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             vacancy_id, vacancy.get('name'),
             vacancy.get('employer', {}).get('id'), vacancy.get('employer', {}).get('name'),
@@ -271,10 +273,11 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
             vacancy.get('url'), vacancy.get('alternate_url'), vacancy.get('apply_alternate_url'),
             published_at, published_date,
             datetime.now(MSK).isoformat(), datetime.now(MSK).isoformat(),
+            json.dumps(vacancy, ensure_ascii=False),
             experience.get('id'), experience.get('name'), pro_role_id,
             schedule_id, schedule_name,
-            target, skip_reason, flex_score, builder_score, is_dup,
-            json.dumps(vacancy, ensure_ascii=False)
+            0,
+            target, skip_reason, flex_score, builder_score, is_dup
         ))
         for wf in wfs:
             conn.execute("""
