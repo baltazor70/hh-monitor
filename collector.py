@@ -198,12 +198,26 @@ def calc_builder_score(full):
     return min(sum(1 for k in BUILDER_KEYWORDS if k in desc), 3)
 
 def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
+    title_lower = (vacancy.get('name') or '').lower()
     snippet = vacancy.get('snippet') or {}
     snippet_text = re.sub('<[^>]+>', ' ', f"{snippet.get('requirement') or ''} {snippet.get('responsibility') or ''}").lower()
+    # Builder-обход только если в названии есть управленческий маркер
+    # (иначе "Ассистент маркетолога" с "с нуля" прорвётся)
+    MANAGER_TERMS = ('руководитель', 'head of', 'lead', 'тимлид', 'teamlead', 
+                     'начальник', 'директор', 'director', 'chief')
+    has_manager_term = any(t in title_lower for t in MANAGER_TERMS)
+    # Также отсеиваем явные нерелевантные должности
+    OFF_TOPIC = ('hr-менеджер', 'hr менеджер', 'маркетолог', 'маркетинг', 
+                 'финансовый менеджер', 'бухгалтер', 'юрист', 'рекрутер',
+                 'продаж', 'sales', 'qa ', 'qa-', 'developer', 'разработчик')
+    is_off_topic = any(t in title_lower for t in OFF_TOPIC)
+    
     builder_hint = any(k in snippet_text for k in BUILDER_KEYWORDS)
-    if not is_manager_title(vacancy.get('name')) and not builder_hint:
+    if is_off_topic:
         return False
-    if not is_relevant_role(vacancy) and not builder_hint:
+    if not is_manager_title(title_lower) and not (builder_hint and has_manager_term):
+        return False
+    if not is_relevant_role(vacancy) and not (builder_hint and has_manager_term):
         return 0
 
     conn = get_db()
