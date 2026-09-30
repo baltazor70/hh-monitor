@@ -178,6 +178,17 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
 
     existing = conn.execute("SELECT id FROM vacancies WHERE id = ?", (vacancy_id,)).fetchone()
 
+    # Проверка дубликата: тот же работодатель + то же название
+    employer_id = vacancy.get('employer', {}).get('id')
+    if not existing and employer_id:
+        if is_duplicate_vacancy(conn, employer_id, vacancy.get('name')):
+            skip_reason = 'duplicate'
+            # Всё равно сохраняем для истории, но помечаем
+        else:
+            skip_reason = None
+    else:
+        skip_reason = None
+
     salary = vacancy.get('salary') or {}
     experience = vacancy.get('experience') or {}
     pro_roles = vacancy.get('professional_roles', [])
