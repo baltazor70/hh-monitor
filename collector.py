@@ -19,79 +19,31 @@ HEADERS = {
 
 ROLE_GROUPS = {
     "head_of_support": [
-        '"руководитель технической поддержки"',
-        '"руководитель отдела технической поддержки"',
-        '"head of support"',
-        '"head of it support"',
-        '"it support manager"',
-        '"service desk manager"',
-        '"руководитель service desk"',
-        '"руководитель департамента поддержки"',
-        '"руководитель департамента технической поддержки"',
-        '"руководитель службы технической поддержки"',
-        '"руководитель службы поддержки"',
-        '"руководитель службы 1 линии"',
-        '"руководитель службы 2 линии"',
-        '"руководитель мониторинга"',
-        '"начальник отдела технической поддержки"',
-        '"начальник службы поддержки"',
-        '"начальник отдела поддержки"',
-        '"руководитель поддержки L1"',
-        '"руководитель поддержки L2"',
-        '"руководитель L1"',
-        '"руководитель L2"',
-        '"head of L1"',
-        '"head of L2"',
-        '"head of line 1"',
-        '"head of line 2"',
-        '"head of first line"',
-        '"head of second line"',
-        '"руководитель сервиса поддержки"',
-        '"руководитель сервиса технической поддержки"',
-        '"начальник сервиса поддержки"',
-        '"начальник сервиса технической поддержки"',
-        '"head of service support"',
-        '"service support manager"',
-    ],
-    "team_lead_support": [
-        '"team lead support"',
-        '"team lead service desk"',
-        '"тимлид поддержки"',
-        '"тимлид технической поддержки"',
-        '"руководитель группы поддержки"',
-        '"руководитель 1 линии поддержки"',
-        '"руководитель 2 линии поддержки"',
-        '"руководитель группы мониторинга"',
-        '"тимлид 1 линии"',
-        '"тимлид 2 линии"',
-        '"team lead 1 line"',
-        '"team lead 2 line"',
-        '"тимлид L1"',
-        '"тимлид L2"',
-        '"тимлид поддержки L1"',
-        '"тимлид поддержки L2"',
-        '"team lead L1"',
-        '"team lead L2"',
-        '"teamlead L1"',
-        '"teamlead L2"',
-        '"team lead first line"',
-        '"team lead second line"',
-        '"teamlead first line"',
-        '"teamlead second line"',
-        '"тимлид сервиса поддержки"',
-        '"тимлид сервиса технической поддержки"',
-        '"team lead service support"',
-        '"teamlead service support"',
-    ],
-    "it_head": [
-        '"руководитель ИТ отдела"',
-        '"руководитель it отдела"',
-        '"начальник ИТ отдела"',
-        '"head of it"',
-        '"it manager"',
-        '"руководитель отдела информационных технологий"',
+        "руководитель технической поддержки",
+        "head of support",
+        "руководитель helpdesk",
+        "service desk team lead",
+        "руководитель сервиса it",
+        "руководитель отдела сопровождения",
+        "руководитель команды поддержки",
     ]
 }
+
+# Стоп-слова для отсева нерелевантных вакансий (skip_reason="off_topic")
+EXCLUDE_KEYWORDS = {
+    # Медицина и здравоохранение
+    'стоматологи', 'клиник', 'медси', 'хоспис', 'регистратур', 'медицинск', 'колл-центр',
+    # Не ИТ-роли
+    'hrd', 'директор по персоналу', 'бизнес-ассистент', 'цифровой трансформации', 
+    'архитектор 1с', 'архитектор 1c', 'web3', 'aso specialist', 'payout', 'cybersecurity',
+    # ИБ и другие нерелевантные
+    'информационной безопасности', 'предиктивного выявления', 'ии-платформы', 'и и-платформы',
+    # Не подходящие роли
+    'отзывам клиентов', 'отзывов клиентов', 'b2b поддержки', 'фабрика кухн',
+    # Банки/гос (если уже не отловлены STRICT_BLACKLIST)
+    'банк', 'сбер', 'втб', 'гос', 'федеральный',
+}
+
 
 ALLOWED_ROLES = {'121','113','105','104','189','114','112','116','36','125','40'}
 
@@ -239,6 +191,45 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
     schedule_id, schedule_name = None, None
     if not existing:
         full = fetch_vacancy_full(token, vacancy_id)
+        # === ДОПОЛНИТЕЛЬНЫЕ ФИЛЬТРЫ РЕЛЕВАНТНОСТИ ===
+        
+        # 3.1. Фильтр по зарплате (salary_from < 150000 → skip_reason="low_salary")
+        salary_from = salary.get('from') or 0
+        if salary_from > 0 and salary_from < 150000 and salary.get('currency') in ['RUB', 'RUR']:
+            skip_reason = skip_reason or 'low_salary'
+        
+        # 3.2. Фильтр по формату работы (office_only для fullDay)
+        schedule_info = full.get('schedule', {}) if full else {}
+        if schedule_info.get('id') == 'fullDay':
+            skip_reason = skip_reason or 'office_only'
+        
+        # 3.3. Фильтр по опыту (noExperience, between1And3 → skip_reason="junior_level")
+        exp_info = full.get('experience', {}) if full else {}
+        exp_id = exp_info.get('id', '')
+        if exp_id in ['noExperience', 'between1And3', 'between1And6']:
+            skip_reason = skip_reason or 'junior_level'
+        
+        # 3.4. Фильтр по EXCLUDE_KEYWORDS (название + описание → skip_reason="off_topic")
+        name_lower_check = (vacancy.get('name') or '').lower()
+        desc_lower = ((full or {}).get('description') or '').lower()
+        text_lower = f"{name_lower_check} {desc_lower}"
+        
+        for keyword in EXCLUDE_KEYWORDS:
+            if keyword.lower() in text_lower:
+                skip_reason = skip_reason or 'off_topic'
+                print(f"[SKIP] '{keyword}' found in: {vacancy.get('name')}")
+                break
+        
+        # 3.5. Дополнительная проверка названия на нерелевантные роли
+        off_topic_titles = ['директор по персоналу', 'hrd', 'бизнес-ассистент', 'архитектор 1с', 
+                           'web3', 'aso', 'payout', 'cybersecurity', 'информационной безопасности',
+                           'ии-платформы', 'отзывам клиентов', 'b2b поддержки', 'фабрика кухн']
+        for off_topic in off_topic_titles:
+            if off_topic in name_lower_check:
+                skip_reason = skip_reason or 'off_topic'
+                print(f"[SKIP] Off-topic title '{off_topic}' in: {vacancy.get('name')}")
+                break
+
         wfs = []
         if full:
             wfs = full.get('work_format') or []
@@ -303,7 +294,7 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
                 INSERT OR IGNORE INTO vacancy_skills (vacancy_id, skill_name)
                 VALUES (?, ?)
             """, (vacancy_id, sk.get('name')))
-        marks = (' SKIP:' + skip_reason) if skip_reason else ''
+        marks = (' ⚠️ SKIP:' + skip_reason) if skip_reason else ''
         marks += ' 🔥BUILDER' if builder_score else ''
         marks += ' 🟢FLEX' if flex_score else ''
         print(f"[{datetime.now(MSK)}] Added: {vacancy.get('name')} [{schedule_name or 'без формата'}]{marks}")
