@@ -61,7 +61,24 @@ EXCLUDE_KEYWORDS = {
 }
 
 
-ALLOWED_ROLES = {'121','113','105','104','189','114','112','116','36','125','40'}
+ALLOWED_ROLES = {'121','113','105','104','189','114','112','116','36','125','40'}  # конец EXCLUDE_KEYWORDS
+
+# Ключевые слова, которые ДОЛЖНЫ быть в названии вакансии, чтобы она считалась
+# релевантной для позиции "Руководитель технической поддержки / Head of Support /
+# Service Desk Lead". Если в названии нет ни одного из этих слов - вакансия отсекается.
+SUPPORT_TITLE_KEYWORDS = [
+    'поддержк', 'сопровожден', 'эксплуатаци', 'мониторинг',
+    'helpdesk', 'help desk', 'service desk', 'servicedesk',
+    'сервис', 'сервиса', 'сервисной', 'сервисную',
+    'клиентского сервиса', 'клиентский сервис',
+    'ит-поддержк', 'ит поддержк', 'it поддержк', 'it-поддержк',
+    'поддержки пользователей', 'поддержку пользователей',
+    'отдел ит', 'отдела ит', 'ит отдела', 'ит-отдела', 'отдел it', 'отдела it',
+    'инфраструктур',
+    # Английские варианты support
+    'support', 'tech support', 'application support',
+]
+
 
 SCOPES = {
     "moscow": {"area": "1"},
@@ -185,6 +202,11 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
         return False
     if not is_manager_title(title_lower) and not (builder_hint and has_manager_term):
         return False
+
+    # Позитивный фильтр: в названии должно быть слово из поддержки/сопровождения/эксплуатации
+    has_support_keyword = any(kw in title_lower for kw in SUPPORT_TITLE_KEYWORDS)
+    if not has_support_keyword:
+        return False
     if not is_relevant_role(vacancy) and not (builder_hint and has_manager_term):
         return 0
 
@@ -207,84 +229,6 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
     schedule_id, schedule_name = None, None
     if not existing:
         full = fetch_vacancy_full(token, vacancy_id)
-        # === ДОПОЛНИТЕЛЬНЫЕ ФИЛЬТРЫ РЕЛЕВАНТНОСТИ ===
-        
-        # 3.1. Фильтр по зарплате (salary_from < 150000 → skip_reason="low_salary")
-        salary_from = salary.get('from') or 0
-        if salary_from > 0 and salary_from < 150000 and salary.get('currency') in ['RUB', 'RUR']:
-            skip_reason = skip_reason or 'low_salary'
-        
-        # 3.2. Фильтр по формату работы (office_only для fullDay)
-        schedule_info = full.get('schedule', {}) if full else {}
-        if schedule_info.get('id') == 'fullDay':
-            skip_reason = skip_reason or 'office_only'
-        
-        # 3.3. Фильтр по опыту (noExperience, between1And3 → skip_reason="junior_level")
-        exp_info = full.get('experience', {}) if full else {}
-        exp_id = exp_info.get('id', '')
-        if exp_id in ['noExperience', 'between1And3', 'between1And6']:
-            skip_reason = skip_reason or 'junior_level'
-        
-        # 3.4. Фильтр по EXCLUDE_KEYWORDS (название + описание → skip_reason="off_topic")
-        name_lower_check = (vacancy.get('name') or '').lower()
-        desc_lower = ((full or {}).get('description') or '').lower()
-        text_lower = f"{name_lower_check} {desc_lower}"
-        
-        for keyword in EXCLUDE_KEYWORDS:
-            if keyword.lower() in text_lower:
-                skip_reason = skip_reason or 'off_topic'
-                print(f"[SKIP] '{keyword}' found in: {vacancy.get('name')}")
-                break
-        
-        # 3.5. Дополнительная проверка названия на нерелевантные роли
-        off_topic_titles = ['директор по персоналу', 'hrd', 'бизнес-ассистент', 'архитектор 1с', 
-                           'web3', 'aso', 'payout', 'cybersecurity', 'информационной безопасности',
-                           'ии-платформы', 'отзывам клиентов', 'b2b поддержки', 'фабрика кухн']
-        for off_topic in off_topic_titles:
-            if off_topic in name_lower_check:
-                skip_reason = skip_reason or 'off_topic'
-                print(f"[SKIP] Off-topic title '{off_topic}' in: {vacancy.get('name')}")
-                break
-
-        # === ДОПОЛНИТЕЛЬНЫЕ ФИЛЬТРЫ РЕЛЕВАНТНОСТИ ===
-        
-        # 3.1. Фильтр по зарплате (salary_from < 150000 → skip_reason="low_salary")
-        salary_from = salary.get('from') or 0
-        if salary_from > 0 and salary_from < 150000 and salary.get('currency') in ['RUB', 'RUR']:
-            skip_reason = skip_reason or 'low_salary'
-        
-        # 3.2. Фильтр по формату работы (office_only для fullDay)
-        schedule_info = full.get('schedule', {}) if full else {}
-        if schedule_info.get('id') == 'fullDay':
-            skip_reason = skip_reason or 'office_only'
-        
-        # 3.3. Фильтр по опыту (noExperience, between1And3 → skip_reason="junior_level")
-        exp_info = full.get('experience', {}) if full else {}
-        exp_id = exp_info.get('id', '')
-        if exp_id in ['noExperience', 'between1And3', 'between1And6']:
-            skip_reason = skip_reason or 'junior_level'
-        
-        # 3.4. Фильтр по EXCLUDE_KEYWORDS (название + описание → skip_reason="off_topic")
-        name_lower_check = (vacancy.get('name') or '').lower()
-        desc_lower = ((full or {}).get('description') or '').lower()
-        text_lower = f"{name_lower_check} {desc_lower}"
-        
-        for keyword in EXCLUDE_KEYWORDS:
-            if keyword.lower() in text_lower:
-                skip_reason = skip_reason or 'off_topic'
-                print(f"[SKIP] '{keyword}' found in: {vacancy.get('name')}")
-                break
-        
-        # 3.5. Дополнительная проверка названия на нерелевантные роли
-        off_topic_titles = ['директор по персоналу', 'hrd', 'бизнес-ассистент', 'архитектор 1с', 
-                           'web3', 'aso', 'payout', 'cybersecurity', 'информационной безопасности',
-                           'ии-платформы', 'отзывам клиентов', 'b2b поддержки', 'фабрика кухн']
-        for off_topic in off_topic_titles:
-            if off_topic in name_lower_check:
-                skip_reason = skip_reason or 'off_topic'
-                print(f"[SKIP] Off-topic title '{off_topic}' in: {vacancy.get('name')}")
-                break
-
         wfs = []
         if full:
             wfs = full.get('work_format') or []
@@ -306,6 +250,45 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
                 else:
                     for r in same:
                         conn.execute("UPDATE vacancies SET skip_reason='duplicate', is_duplicate=1 WHERE id=?", (r[0],))
+        # === ДОПОЛНИТЕЛЬНЫЕ ФИЛЬТРЫ РЕЛЕВАНТНОСТИ ===
+        
+        # 3.1. Фильтр по зарплате (salary_from < 150000 → skip_reason="low_salary")
+        salary_from = salary.get('from') or 0
+        if salary_from > 0 and salary_from < 150000 and salary.get('currency') in ['RUB', 'RUR']:
+            skip_reason = skip_reason or 'low_salary'
+        
+        # 3.2. Фильтр по формату работы (office_only для fullDay)
+        schedule_info = full.get('schedule', {}) if full else {}
+        if schedule_info.get('id') == 'fullDay':
+            skip_reason = skip_reason or 'office_only'
+        
+        # 3.3. Фильтр по опыту (noExperience, between1And3 → skip_reason="junior_level")
+        exp_info = full.get('experience', {}) if full else {}
+        exp_id = exp_info.get('id', '')
+        if exp_id in ['noExperience', 'between1And3', 'between1And6']:
+            skip_reason = skip_reason or 'junior_level'
+        
+        # 3.4. Фильтр по EXCLUDE_KEYWORDS (название + описание → skip_reason="off_topic")
+        name_lower_check = (vacancy.get('name') or '').lower()
+        desc_lower = ((full or {}).get('description') or '').lower()
+        text_lower = f"{name_lower_check} {desc_lower}"
+        
+        for keyword in EXCLUDE_KEYWORDS:
+            if keyword.lower() in text_lower:
+                skip_reason = skip_reason or 'off_topic'
+                print(f"[SKIP] '{keyword}' found in: {vacancy.get('name')}")
+                break
+        
+        # 3.5. Дополнительная проверка названия на нерелевантные роли
+        off_topic_titles = ['директор по персоналу', 'hrd', 'бизнес-ассистент', 'архитектор 1с', 
+                           'web3', 'aso', 'payout', 'cybersecurity', 'информационной безопасности',
+                           'ии-платформы', 'отзывам клиентов', 'b2b поддержки', 'фабрика кухн']
+        for off_topic in off_topic_titles:
+            if off_topic in name_lower_check:
+                skip_reason = skip_reason or 'off_topic'
+                print(f"[SKIP] Off-topic title '{off_topic}' in: {vacancy.get('name')}")
+                break
+
         flex_score = calc_flexibility_score(full)
         builder_score = calc_builder_score(full)
         if builder_hint and builder_score == 0 and not is_manager_title(vacancy.get('name')):
