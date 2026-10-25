@@ -45,6 +45,22 @@ EXCLUDE_KEYWORDS = {
 }
 
 
+# Стоп-слова для отсева нерелевантных вакансий (skip_reason="off_topic")
+EXCLUDE_KEYWORDS = {
+    # Медицина и здравоохранение
+    'стоматологи', 'клиник', 'медси', 'хоспис', 'регистратур', 'медицинск', 'колл-центр',
+    # Не ИТ-роли
+    'hrd', 'директор по персоналу', 'бизнес-ассистент', 'цифровой трансформации', 
+    'архитектор 1с', 'архитектор 1c', 'web3', 'aso specialist', 'payout', 'cybersecurity',
+    # ИБ и другие нерелевантные
+    'информационной безопасности', 'предиктивного выявления', 'ии-платформы', 'и и-платформы',
+    # Не подходящие роли
+    'отзывам клиентов', 'отзывов клиентов', 'b2b поддержки', 'фабрика кухн',
+    # Банки/гос (если уже не отловлены STRICT_BLACKLIST)
+    'банк', 'сбер', 'втб', 'гос', 'федеральный',
+}
+
+
 ALLOWED_ROLES = {'121','113','105','104','189','114','112','116','36','125','40'}
 
 SCOPES = {
@@ -191,6 +207,45 @@ def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
     schedule_id, schedule_name = None, None
     if not existing:
         full = fetch_vacancy_full(token, vacancy_id)
+        # === ДОПОЛНИТЕЛЬНЫЕ ФИЛЬТРЫ РЕЛЕВАНТНОСТИ ===
+        
+        # 3.1. Фильтр по зарплате (salary_from < 150000 → skip_reason="low_salary")
+        salary_from = salary.get('from') or 0
+        if salary_from > 0 and salary_from < 150000 and salary.get('currency') in ['RUB', 'RUR']:
+            skip_reason = skip_reason or 'low_salary'
+        
+        # 3.2. Фильтр по формату работы (office_only для fullDay)
+        schedule_info = full.get('schedule', {}) if full else {}
+        if schedule_info.get('id') == 'fullDay':
+            skip_reason = skip_reason or 'office_only'
+        
+        # 3.3. Фильтр по опыту (noExperience, between1And3 → skip_reason="junior_level")
+        exp_info = full.get('experience', {}) if full else {}
+        exp_id = exp_info.get('id', '')
+        if exp_id in ['noExperience', 'between1And3', 'between1And6']:
+            skip_reason = skip_reason or 'junior_level'
+        
+        # 3.4. Фильтр по EXCLUDE_KEYWORDS (название + описание → skip_reason="off_topic")
+        name_lower_check = (vacancy.get('name') or '').lower()
+        desc_lower = ((full or {}).get('description') or '').lower()
+        text_lower = f"{name_lower_check} {desc_lower}"
+        
+        for keyword in EXCLUDE_KEYWORDS:
+            if keyword.lower() in text_lower:
+                skip_reason = skip_reason or 'off_topic'
+                print(f"[SKIP] '{keyword}' found in: {vacancy.get('name')}")
+                break
+        
+        # 3.5. Дополнительная проверка названия на нерелевантные роли
+        off_topic_titles = ['директор по персоналу', 'hrd', 'бизнес-ассистент', 'архитектор 1с', 
+                           'web3', 'aso', 'payout', 'cybersecurity', 'информационной безопасности',
+                           'ии-платформы', 'отзывам клиентов', 'b2b поддержки', 'фабрика кухн']
+        for off_topic in off_topic_titles:
+            if off_topic in name_lower_check:
+                skip_reason = skip_reason or 'off_topic'
+                print(f"[SKIP] Off-topic title '{off_topic}' in: {vacancy.get('name')}")
+                break
+
         # === ДОПОЛНИТЕЛЬНЫЕ ФИЛЬТРЫ РЕЛЕВАНТНОСТИ ===
         
         # 3.1. Фильтр по зарплате (salary_from < 150000 → skip_reason="low_salary")

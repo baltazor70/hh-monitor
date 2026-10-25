@@ -1,0 +1,364 @@
+import httpx
+import re
+import os
+import json
+import time
+from datetime import datetime, timedelta
+import pytz
+from dotenv import load_dotenv
+from database import get_db, MSK
+
+load_dotenv()
+
+BASE_URL = "https://api.hh.ru"
+HH_USER_AGENT = os.getenv("HH_USER_AGENT")
+
+HEADERS = {
+    "User-Agent": HH_USER_AGENT,
+}
+
+ROLE_GROUPS = {
+    "head_of_support": [
+        "руководитель технической поддержки",
+        "head of support",
+        "руководитель helpdesk",
+        "service desk team lead",
+        "руководитель сервиса it",
+        "руководитель отдела сопровождения",
+        "руководитель команды поддержки",
+    ]
+}
+
+# Стоп-слова для отсева нерелевантных вакансий (skip_reason="off_topic")
+EXCLUDE_KEYWORDS = {
+    # Медицина и здравоохранение
+    'стоматологи', 'клиник', 'медси', 'хоспис', 'регистратур', 'медицинск', 'колл-центр',
+    # Не ИТ-роли
+    'hrd', 'директор по персоналу', 'бизнес-ассистент', 'цифровой трансформации', 
+    'архитектор 1с', 'архитектор 1c', 'web3', 'aso specialist', 'payout', 'cybersecurity',
+    # ИБ и другие нерелевантные
+    'информационной безопасности', 'предиктивного выявления', 'ии-платформы', 'и и-платформы',
+    # Не подходящие роли
+    'отзывам клиентов', 'отзывов клиентов', 'b2b поддержки', 'фабрика кухн',
+    # Банки/гос (если уже не отловлены STRICT_BLACKLIST)
+    'банк', 'сбер', 'втб', 'гос', 'федеральный',
+}
+
+
+ALLOWED_ROLES = {'121','113','105','104','189','114','112','116','36','125','40'}
+
+SCOPES = {
+    "moscow": {"area": "1"},
+    "remote": {"schedule": "remote"}
+}
+
+TOKEN_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.token')
+
+from token_manager import get_cached_token
+
+def get_access_token():
+    try:
+        with open(TOKEN_CACHE) as f:
+            tok, exp = f.read().split()
+        if time.time() < float(exp):
+            return tok
+    except Exception:
+        pass
+    return get_cached_token()
+
+def fetch_vacancies(token, text, scope, page=0):
+    params = {"text": text, "per_page": 100, "page": page, "order_by": "publication_time"}
+    params.update(scope)
+    for attempt in range(3):
+        try:
+            response = httpx.get(
+                f"{BASE_URL}/vacancies", params=params,
+                headers={**HEADERS, "Authorization": f"Bearer {token}"}, timeout=30.0
+            )
+            if response.status_code == 200:
+                return response.json()
+            if response.status_code == 429:
+                time.sleep(60); continue
+            time.sleep(10)
+        except Exception:
+            time.sleep(10)
+    return None
+
+def fetch_vacancy_full(token, vacancy_id):
+    try:
+        response = httpx.get(
+            f"{BASE_URL}/vacancies/{vacancy_id}",
+            headers={**HEADERS, "Authorization": f"Bearer {token}"}, timeout=30.0
+        )
+        if response.status_code == 200:
+            return response.json()
+    except Exception:
+        pass
+    return None
+
+def to_msk_date(iso_dt):
+    if not iso_dt:
+        return datetime.now(MSK).date().isoformat()
+    try:
+        dt = datetime.fromisoformat(iso_dt.replace('Z', '+00:00'))
+        return dt.astimezone(MSK).date().isoformat()
+    except Exception:
+        return datetime.now(MSK).date().isoformat()
+
+def is_relevant_role(vacancy):
+    pro_role = vacancy.get('professional_roles', [])
+    if not pro_role:
+        return True
+    return any(r.get('id') in ALLOWED_ROLES for r in pro_role)
+
+MANAGER_MARKERS = ('руководитель','head of','lead','тимлид','teamlead','начальник','директор','director','manager','chief')
+EXCLUDE_MARKERS = ('marketing','маркетинг','sales','продаж','разработки','developer','typescript','fullstack','frontend','backend','devops','cloud engineer','data ','hr','финанс','finance','юрист','legal','бухгалтер','логист','logist','закуп')
+
+def is_manager_title(name):
+    n = (name or '').lower()
+    return any(m in n for m in MANAGER_MARKERS) and not any(e in n for e in EXCLUDE_MARKERS)
+
+STRICT_BLACKLIST = [k.strip().lower() for k in os.getenv('STRICT_BLACKLIST', '').split(',') if k.strip()]
+TARGET_COMPANIES = [k.strip().lower() for k in os.getenv('TARGET_COMPANIES', '').split(',') if k.strip()]
+SOFT_BLACKLIST = [k.strip().lower() for k in os.getenv('BLACKLIST', '').split(',') if k.strip()]
+FLEX_KEYWORDS = ['проектная работа', 'гпх', 'частичная занятость', 'гибкий график',
+                 'удаленно', 'удалённо', 'remote', 'asynchronous', 'фриланс', 'contract']
+BUILDER_KEYWORDS = ['с нуля', 'greenfield', 'green field', 'выстроить процессы',
+                    'построить процессы', 'построить с нуля', 'хаос', 'первый сотрудник',
+                    'основатель направления', 'первым сотрудником', 'build from scratch', 'zero to one']
+
+def strict_blacklist_hit(employer_name, description):
+    if not STRICT_BLACKLIST:
+        return False
+    text = f"{employer_name or ''} {description or ''}".lower()
+    return any(k in text for k in STRICT_BLACKLIST)
+
+def is_target_company(employer_name):
+    name = (employer_name or '').lower()
+    if SOFT_BLACKLIST and any(k in name for k in SOFT_BLACKLIST):
+        return 0
+    if TARGET_COMPANIES:
+        return 1 if any(k in name for k in TARGET_COMPANIES) else 0
+    return 1
+
+def calc_flexibility_score(full):
+    desc = ((full or {}).get('description') or '').lower()
+    return min(sum(1 for kw in FLEX_KEYWORDS if kw in desc), 3)
+
+def calc_builder_score(full):
+    desc = ((full or {}).get('description') or '').lower()
+    return min(sum(1 for k in BUILDER_KEYWORDS if k in desc), 3)
+
+def save_vacancy(vacancy, role_group, scope_name, query_phrase, token):
+    title_lower = (vacancy.get('name') or '').lower()
+    snippet = vacancy.get('snippet') or {}
+    snippet_text = re.sub('<[^>]+>', ' ', f"{snippet.get('requirement') or ''} {snippet.get('responsibility') or ''}").lower()
+    # Builder-обход только если в названии есть управленческий маркер
+    # (иначе "Ассистент маркетолога" с "с нуля" прорвётся)
+    MANAGER_TERMS = ('руководитель', 'head of', 'lead', 'тимлид', 'teamlead', 
+                     'начальник', 'директор', 'director', 'chief')
+    has_manager_term = any(t in title_lower for t in MANAGER_TERMS)
+    # Также отсеиваем явные нерелевантные должности
+    OFF_TOPIC = ('hr-менеджер', 'hr менеджер', 'маркетолог', 'маркетинг', 
+                 'финансовый менеджер', 'бухгалтер', 'юрист', 'рекрутер',
+                 'продаж', 'sales', 'qa ', 'qa-', 'developer', 'разработчик')
+    is_off_topic = any(t in title_lower for t in OFF_TOPIC)
+    
+    builder_hint = any(k in snippet_text for k in BUILDER_KEYWORDS)
+    if is_off_topic:
+        return False
+    if not is_manager_title(title_lower) and not (builder_hint and has_manager_term):
+        return False
+    if not is_relevant_role(vacancy) and not (builder_hint and has_manager_term):
+        return 0
+
+    conn = get_db()
+    vacancy_id = vacancy['id']
+    published_at = vacancy.get('published_at')
+    published_date = to_msk_date(published_at)
+
+    existing = conn.execute("SELECT id FROM vacancies WHERE id = ?", (vacancy_id,)).fetchone()
+
+    employer_id = vacancy.get('employer', {}).get('id')
+    employer_name = vacancy.get('employer', {}).get('name')
+    name_lower = (vacancy.get('name') or '').lower()
+
+    salary = vacancy.get('salary') or {}
+    experience = vacancy.get('experience') or {}
+    pro_roles = vacancy.get('professional_roles', [])
+    pro_role_id = pro_roles[0].get('id') if pro_roles else None
+
+    schedule_id, schedule_name = None, None
+    if not existing:
+        full = fetch_vacancy_full(token, vacancy_id)
+        # === ДОПОЛНИТЕЛЬНЫЕ ФИЛЬТРЫ РЕЛЕВАНТНОСТИ ===
+        
+        # 3.1. Фильтр по зарплате (salary_from < 150000 → skip_reason="low_salary")
+        salary_from = salary.get('from') or 0
+        if salary_from > 0 and salary_from < 150000 and salary.get('currency') in ['RUB', 'RUR']:
+            skip_reason = skip_reason or 'low_salary'
+        
+        # 3.2. Фильтр по формату работы (office_only для fullDay)
+        schedule_info = full.get('schedule', {}) if full else {}
+        if schedule_info.get('id') == 'fullDay':
+            skip_reason = skip_reason or 'office_only'
+        
+        # 3.3. Фильтр по опыту (noExperience, between1And3 → skip_reason="junior_level")
+        exp_info = full.get('experience', {}) if full else {}
+        exp_id = exp_info.get('id', '')
+        if exp_id in ['noExperience', 'between1And3', 'between1And6']:
+            skip_reason = skip_reason or 'junior_level'
+        
+        # 3.4. Фильтр по EXCLUDE_KEYWORDS (название + описание → skip_reason="off_topic")
+        name_lower_check = (vacancy.get('name') or '').lower()
+        desc_lower = ((full or {}).get('description') or '').lower()
+        text_lower = f"{name_lower_check} {desc_lower}"
+        
+        for keyword in EXCLUDE_KEYWORDS:
+            if keyword.lower() in text_lower:
+                skip_reason = skip_reason or 'off_topic'
+                print(f"[SKIP] '{keyword}' found in: {vacancy.get('name')}")
+                break
+        
+        # 3.5. Дополнительная проверка названия на нерелевантные роли
+        off_topic_titles = ['директор по персоналу', 'hrd', 'бизнес-ассистент', 'архитектор 1с', 
+                           'web3', 'aso', 'payout', 'cybersecurity', 'информационной безопасности',
+                           'ии-платформы', 'отзывам клиентов', 'b2b поддержки', 'фабрика кухн']
+        for off_topic in off_topic_titles:
+            if off_topic in name_lower_check:
+                skip_reason = skip_reason or 'off_topic'
+                print(f"[SKIP] Off-topic title '{off_topic}' in: {vacancy.get('name')}")
+                break
+
+        wfs = []
+        if full:
+            wfs = full.get('work_format') or []
+            if wfs:
+                schedule_id, schedule_name = wfs[0].get('id'), wfs[0].get('name')
+            time.sleep(1)
+
+        skip_reason, is_dup = None, 0
+        if strict_blacklist_hit(employer_name, (full or {}).get('description')):
+            skip_reason = 'strict_security_risk'
+        elif employer_id:
+            same = conn.execute("""
+                SELECT id, published_date FROM vacancies
+                WHERE employer_id=? AND lower(name)=? AND archived=0 AND skip_reason IS NULL
+            """, (employer_id, name_lower)).fetchall()
+            if same:
+                if any(r[1] > published_date for r in same):
+                    is_dup, skip_reason = 1, 'duplicate'
+                else:
+                    for r in same:
+                        conn.execute("UPDATE vacancies SET skip_reason='duplicate', is_duplicate=1 WHERE id=?", (r[0],))
+        flex_score = calc_flexibility_score(full)
+        builder_score = calc_builder_score(full)
+        if builder_hint and builder_score == 0 and not is_manager_title(vacancy.get('name')):
+            conn.close()
+            return False
+        target = is_target_company(employer_name)
+
+        conn.execute("""
+            INSERT INTO vacancies (
+                id, name, employer_id, employer_name, area_name,
+                salary_from, salary_to, salary_currency, salary_gross,
+                url, alternate_url, apply_alternate_url,
+                published_at, published_date, first_seen_at, last_seen_at,
+                raw_json,
+                experience_id, experience_name, professional_role_id,
+                schedule_id, schedule_name,
+                archived,
+                is_target, skip_reason, flexibility_score, builder_score, is_duplicate
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            vacancy_id, vacancy.get('name'),
+            vacancy.get('employer', {}).get('id'), vacancy.get('employer', {}).get('name'),
+            vacancy.get('area', {}).get('name'),
+            salary.get('from'), salary.get('to'), salary.get('currency'), salary.get('gross'),
+            vacancy.get('url'), vacancy.get('alternate_url'), vacancy.get('apply_alternate_url'),
+            published_at, published_date,
+            datetime.now(MSK).isoformat(), datetime.now(MSK).isoformat(),
+            json.dumps(vacancy, ensure_ascii=False),
+            experience.get('id'), experience.get('name'), pro_role_id,
+            schedule_id, schedule_name,
+            0,
+            target, skip_reason, flex_score, builder_score, is_dup
+        ))
+        for wf in wfs:
+            conn.execute("""
+                INSERT OR IGNORE INTO vacancy_formats (vacancy_id, format_id, format_name)
+                VALUES (?, ?, ?)
+            """, (vacancy_id, wf.get('id'), wf.get('name')))
+        for sk in ((full.get('key_skills') or []) if full else []):
+            conn.execute("""
+                INSERT OR IGNORE INTO vacancy_skills (vacancy_id, skill_name)
+                VALUES (?, ?)
+            """, (vacancy_id, sk.get('name')))
+        marks = (' ⚠️ SKIP:' + skip_reason) if skip_reason else ''
+        marks += ' 🔥BUILDER' if builder_score else ''
+        marks += ' 🟢FLEX' if flex_score else ''
+        print(f"[{datetime.now(MSK)}] Added: {vacancy.get('name')} [{schedule_name or 'без формата'}]{marks}")
+    else:
+        conn.execute("""
+            UPDATE vacancies SET last_seen_at = ?, experience_id = ?, experience_name = ?, professional_role_id = ?
+            WHERE id = ?
+        """, (datetime.now(MSK).isoformat(), experience.get('id'), experience.get('name'), pro_role_id, vacancy_id))
+
+    conn.execute("""
+        INSERT OR IGNORE INTO vacancy_matches (
+            vacancy_id, role_group, search_scope, query_phrase, first_seen_at
+        ) VALUES (?, ?, ?, ?, ?)
+    """, (vacancy_id, role_group, scope_name, query_phrase, datetime.now(MSK).isoformat()))
+
+    conn.commit()
+    conn.close()
+    return 1
+
+def collect_vacancies():
+    print(f"[{datetime.now(MSK)}] Starting vacancy collection...")
+    token = get_access_token()
+    if not token:
+        print("Failed to get token after 3 attempts")
+        return
+    
+    # Тестовый запрос для проверки валидности токена
+    test_resp = httpx.get(
+        f"{BASE_URL}/vacancies", params={"text": "test", "per_page": 1},
+        headers={**HEADERS, "Authorization": f"Bearer {token}"}, timeout=10.0
+    )
+    if test_resp.status_code == 401:
+        print("Token invalid (401), aborting early")
+        return
+
+
+    total_added = 0
+    total_skipped = 0
+    cutoff = (datetime.now(MSK) - timedelta(days=3)).date().isoformat()
+
+    for role_group, phrases in ROLE_GROUPS.items():
+        for phrase in phrases:
+            for scope_name, scope_params in SCOPES.items():
+                page = 0
+                while page < 3:
+                    data = fetch_vacancies(token, phrase, scope_params, page)
+                    if not data:
+                        break
+                    items = data.get('items', [])
+                    if not items:
+                        break
+                    for vacancy in items:
+                        if save_vacancy(vacancy, role_group, scope_name, phrase, token):
+                            total_added += 1
+                        else:
+                            total_skipped += 1
+                    if to_msk_date(items[-1].get('published_at')) < cutoff:
+                        break
+                    if page >= data.get('pages', 1) - 1:
+                        break
+                    page += 1
+                    time.sleep(3)
+
+    print(f"[{datetime.now(MSK)}] Collection completed. Added: {total_added}, Skipped: {total_skipped}")
+
+if __name__ == '__main__':
+    collect_vacancies()
